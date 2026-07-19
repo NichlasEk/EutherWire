@@ -39,6 +39,8 @@ through the floor, inner/outer ceiling, and every inner/outer wall. The yellow
 outline is the active drawing surface. Choose `DEV` to place a box or lamp on
 it, or `WIRE`/`PIPE` to route directly on it. With nothing selected, the right
 panel edits room width, depth, height, wall thickness, and ceiling thickness.
+Selecting a device exposes exact X/Y/Z fields, while its move handle follows
+the named surface in 3D and remains undoable.
 See
 [docs/garage-3d-plan.md](docs/garage-3d-plan.md).
 

@@ -126,6 +126,30 @@ public sealed class MoveEditHandleCommand(EditHandleId handleId, Point2 destinat
     }
 }
 
+public sealed class MoveSpatialHandleCommand(EditHandleId handleId, Point3 destination) : IDocumentCommand
+{
+    private Point3 _origin;
+    private bool _hasOrigin;
+
+    public string Description => $"Move {handleId} in 3D";
+
+    public void Apply(ProjectDocument document)
+    {
+        if (!_hasOrigin)
+        {
+            _origin = DocumentHandleEditor.RequireSpatialPosition(document, handleId);
+            _hasOrigin = true;
+        }
+        DocumentHandleEditor.SetSpatialPosition(document, handleId, destination);
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        if (!_hasOrigin) throw new InvalidOperationException("A command cannot be undone before it has been applied.");
+        DocumentHandleEditor.SetSpatialPosition(document, handleId, _origin);
+    }
+}
+
 public sealed class SetObjectLabelCommand(ObjectId objectId, string label) : IDocumentCommand
 {
     private string? _previous;
@@ -215,35 +239,64 @@ public sealed class SetDeviceElevationCommand(ObjectId deviceId, double elevatio
 public sealed class SetDeviceMountingSurfaceCommand(ObjectId deviceId, MountingSurface surface) : IDocumentCommand
 {
     private MountingSurface? _previous;
+    private Point3 _previousPosition;
 
     public string Description => $"Set {deviceId} mounting surface";
 
     public void Apply(ProjectDocument document)
     {
         Device device = document.RequireDevice(deviceId);
-        _previous ??= device.MountingSurface;
+        if (_previous is null)
+        {
+            _previous = device.MountingSurface;
+            _previousPosition = new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres);
+        }
         device.MountingSurface = surface;
+        Point3 constrained = MountingSurfaceGeometry.Constrain(document.Space, surface, _previousPosition);
+        DocumentHandleEditor.SetSpatialPosition(document, new EditHandleId(deviceId, EditHandleKind.Move), constrained);
     }
 
-    public void Undo(ProjectDocument document) =>
-        document.RequireDevice(deviceId).MountingSurface = _previous ?? throw new InvalidOperationException("Command has not been applied.");
+    public void Undo(ProjectDocument document)
+    {
+        Device device = document.RequireDevice(deviceId);
+        device.MountingSurface = _previous ?? throw new InvalidOperationException("Command has not been applied.");
+        DocumentHandleEditor.SetSpatialPosition(document, new EditHandleId(deviceId, EditHandleKind.Move), _previousPosition);
+    }
 }
 
 public sealed class SetSpaceVolumeCommand(SpaceVolume volume) : IDocumentCommand
 {
     private SpaceVolume? _previous;
+    private Dictionary<ObjectId, Point3>? _previousMountedPositions;
 
     public string Description => "Set room dimensions";
 
     public void Apply(ProjectDocument document)
     {
         volume.Validate();
-        _previous ??= document.Space;
+        if (_previous is null)
+        {
+            _previous = document.Space;
+            _previousMountedPositions = document.Devices.Values
+                .Where(device => device.MountingSurface != MountingSurface.Free)
+                .ToDictionary(device => device.Id, device => new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres));
+        }
         document.Space = volume;
+        foreach (Device device in document.Devices.Values.Where(device => device.MountingSurface != MountingSurface.Free).ToArray())
+        {
+            var handle = new EditHandleId(device.Id, EditHandleKind.Move);
+            DocumentHandleEditor.SetSpatialPosition(document, handle, DocumentHandleEditor.RequireSpatialPosition(document, handle));
+        }
     }
 
-    public void Undo(ProjectDocument document) =>
+    public void Undo(ProjectDocument document)
+    {
         document.Space = _previous ?? throw new InvalidOperationException("Command has not been applied.");
+        foreach ((ObjectId id, Point3 position) in _previousMountedPositions ?? throw new InvalidOperationException("Command has not been applied."))
+        {
+            DocumentHandleEditor.SetSpatialPosition(document, new EditHandleId(id, EditHandleKind.Move), position);
+        }
+    }
 }
 
 public sealed class SetCableKindCommand(ObjectId cableId, CableKind kind) : IDocumentCommand

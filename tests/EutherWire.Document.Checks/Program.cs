@@ -94,8 +94,18 @@ var connectedHistory = new CommandHistory();
 connectedHistory.Execute(wired, new MoveEditHandleCommand(new EditHandleId(targetId, EditHandleKind.Move), new Point2(2400, 300)));
 Require(wired.RequireCable(cableId).Route.Points[^1] == new Point2(2400, 300), "Connected cable ends must follow moved device ports.");
 Require(wired.RequireConduit(pipeId).Route.Points[^1] == new Point2(2400, 300), "Matching conduit ends must follow connected cable ends.");
+connectedHistory.Execute(wired, new MoveSpatialHandleCommand(new EditHandleId(targetId, EditHandleKind.Move), new Point3(2500, 400, 2200)));
+Require(wired.RequireDevice(targetId).ElevationMillimetres == 2200, "Spatial move handles must edit a device's exact elevation.");
+Require(wired.RequireCable(cableId).Route.SpatialPoints[^1] == new Point3(2500, 400, 2200), "Connected cable ends must follow device handles in all three dimensions.");
+Require(wired.RequireConduit(pipeId).Route.SpatialPoints[^1] == new Point3(2500, 400, 2200), "Contained conduit ends must follow a spatial device move.");
+Require(connectedHistory.Undo(wired), "Spatial device moves must be undoable.");
+Require(wired.RequireDevice(targetId).ElevationMillimetres == 0 && wired.RequireCable(cableId).Route.SpatialPoints[^1] == new Point3(2400, 300, 0), "Undo must restore exact device and route coordinates.");
 connectedHistory.Execute(wired, new MoveEditHandleCommand(new EditHandleId(pipeId, EditHandleKind.Vertex, 1), new Point2(1000, -500)));
 Require(wired.RequireCable(cableId).Route.Points[1] == new Point2(1000, -500), "Contained cable geometry must follow conduit vertex handles.");
+connectedHistory.Execute(wired, new MoveSpatialHandleCommand(new EditHandleId(pipeId, EditHandleKind.Vertex, 1), new Point3(1200, -600, 1800)));
+Require(wired.RequireConduit(pipeId).Route.SpatialPoints[1] == new Point3(1200, -600, 1800), "Spatial vertex handles must edit X, Y, and Z together.");
+Require(wired.RequireCable(cableId).Route.SpatialPoints[1] == new Point3(1200, -600, 1800), "Contained cable geometry must follow spatial conduit handles.");
+Require(connectedHistory.Undo(wired), "Spatial route moves must be undoable.");
 
 var placed = new Device(ObjectId.Parse("placed-box"), DeviceKind.JunctionBox, new Point2(500, 600), "DOSA-01");
 connectedHistory.Execute(wired, new AddDeviceCommand(placed));
@@ -165,7 +175,8 @@ Require(connectedHistory.Redo(wired), "Planning margins must be redoable.");
 connectedHistory.Execute(wired, new SetCableInstallationCommand(cableId, InstallationStatus.Tested, 2350));
 Require(wired.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "Installation state must be stored on its cable.");
 Require(wired.RequireCable(cableId).ActualLengthMillimetres == 2350, "Actual installed cable length must be preserved.");
-connectedHistory.Execute(wired, new SetSpaceVolumeCommand(wired.Space with { WallThicknessMillimetres = 180, CeilingThicknessMillimetres = 300 }));
+connectedHistory.Execute(wired, new SetSpaceVolumeCommand(wired.Space with { HeightMillimetres = 3000, WallThicknessMillimetres = 180, CeilingThicknessMillimetres = 300 }));
+Require(wired.RequireDevice(lightId).ElevationMillimetres == 3000, "Ceiling-mounted devices must follow an edited room height.");
 
 string serialized = ProjectToml.Serialize(wired);
 ProjectDocument loaded = ProjectToml.Deserialize(serialized);
@@ -178,7 +189,7 @@ Require(loaded.SchemaVersion == 4 && loaded.Planning == new PlanningSettings(15,
 Require(loaded.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "TOML must preserve installation state.");
 Require(loaded.RequireCable(cableId).ActualLengthMillimetres == 2350, "TOML must preserve actual installed length.");
 Require(loaded.Space.WallThicknessMillimetres == 180 && loaded.Space.CeilingThicknessMillimetres == 300, "TOML must preserve wall and ceiling construction thickness.");
-Require(loaded.RequireDevice(lightId).ElevationMillimetres == 2800 && loaded.RequireDevice(lightId).MountingSurface == MountingSurface.CeilingInterior, "TOML must preserve a light mounted on the interior ceiling.");
+Require(loaded.RequireDevice(lightId).ElevationMillimetres == 3000 && loaded.RequireDevice(lightId).MountingSurface == MountingSurface.CeilingInterior, "TOML must preserve a light mounted on the interior ceiling.");
 
 string dangling = serialized.Replace("target:in", "missing:in", StringComparison.Ordinal);
 try
@@ -235,7 +246,9 @@ Require(propertyHistory.Undo(garageDocument) && garageDocument.Space == SpaceVol
 PropertyHandleId mountingSurfaceId = PropertyHandleId.Parse("camera-north:property:mounting_surface");
 propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, mountingSurfaceId, "north_wall_exterior"));
 Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).MountingSurface == MountingSurface.NorthWallExterior, "Mounting-surface handles must attach devices to named building surfaces.");
+Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).Position.Y == garageDocument.Space.Origin.Y - garageDocument.Space.WallThicknessMillimetres, "Exterior-wall attachment must constrain device geometry to the real outside face.");
 Require(propertyHistory.Undo(garageDocument), "Mounting-surface changes must be undoable.");
+Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).Position == new Point2(11200, -2600), "Undo must restore the device's exact free position.");
 var missingMeasurementHistory = new CommandHistory();
 missingMeasurementHistory.Execute(garageDocument, new SetCableInstallationCommand(ObjectId.Parse("camera-north-cat6"), InstallationStatus.Installed, null));
 ProjectAnalysis missingMeasurement = ProjectAnalyzer.Analyze(garageDocument);

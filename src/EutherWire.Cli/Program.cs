@@ -48,9 +48,11 @@ static int Run(string[] arguments)
             Console.WriteLine($"Normalized {Path.Combine(projectDirectory, ProjectToml.FileName)}");
             return 0;
         case "handles" when arguments.Length == 2:
-            foreach (EditHandle handle in DocumentHandles.Enumerate(ProjectToml.Load(projectDirectory)))
+            ProjectDocument handleDocument = ProjectToml.Load(projectDirectory);
+            foreach (EditHandle handle in DocumentHandles.Enumerate(handleDocument))
             {
-                Console.WriteLine($"{handle.Id}\t{handle.Position.X.ToString("0.###", CultureInfo.InvariantCulture)}\t{handle.Position.Y.ToString("0.###", CultureInfo.InvariantCulture)}");
+                Point3 position = DocumentHandleEditor.RequireSpatialPosition(handleDocument, handle.Id);
+                Console.WriteLine($"{handle.Id}\t{position.X.ToString("0.###", CultureInfo.InvariantCulture)}\t{position.Y.ToString("0.###", CultureInfo.InvariantCulture)}\t{position.Z.ToString("0.###", CultureInfo.InvariantCulture)}");
             }
             return 0;
         case "properties" when arguments.Length == 2:
@@ -72,6 +74,8 @@ static int Run(string[] arguments)
             return 0;
         case "move" when arguments.Length == 5:
             return Move(projectDirectory, arguments[2], arguments[3], arguments[4]);
+        case "move3d" when arguments.Length == 6:
+            return Move3D(projectDirectory, arguments[2], arguments[3], arguments[4], arguments[5]);
         case "insert-vertex" when arguments.Length == 6:
             return InsertVertex(projectDirectory, arguments[2], arguments[3], arguments[4], arguments[5]);
         case "delete-vertex" when arguments.Length == 4:
@@ -171,6 +175,24 @@ static int Move(string projectDirectory, string handleText, string xText, string
     return 0;
 }
 
+static int Move3D(string projectDirectory, string handleText, string xText, string yText, string zText)
+{
+    EditHandleId handleId = EditHandleId.Parse(handleText);
+    if (!DocumentHandleEditor.CanSetPosition(handleId))
+    {
+        throw new InvalidOperationException($"Handle '{handleId}' is an anchor and cannot be moved.");
+    }
+    double x = double.Parse(xText, NumberStyles.Float, CultureInfo.InvariantCulture);
+    double y = double.Parse(yText, NumberStyles.Float, CultureInfo.InvariantCulture);
+    double z = double.Parse(zText, NumberStyles.Float, CultureInfo.InvariantCulture);
+    ProjectDocument document = ProjectToml.Load(projectDirectory);
+    var history = new CommandHistory();
+    history.Execute(document, new MoveSpatialHandleCommand(handleId, new Point3(x, y, z)));
+    ProjectToml.Save(projectDirectory, document);
+    Console.WriteLine($"Moved {handleId} to {x.ToString("0.###", CultureInfo.InvariantCulture)}, {y.ToString("0.###", CultureInfo.InvariantCulture)}, Z {z.ToString("0.###", CultureInfo.InvariantCulture)} mm");
+    return 0;
+}
+
 static void PrintSummary(ProjectDocument document)
 {
     Console.WriteLine($"OK schema={document.SchemaVersion} name={document.Name}");
@@ -230,6 +252,7 @@ static void Usage()
     Console.Error.WriteLine("  eutherwire export-svg <project.eutherwire> <output.svg>");
     Console.Error.WriteLine("  eutherwire export-png <project.eutherwire> <output.png>");
     Console.Error.WriteLine("  eutherwire move <project.eutherwire> <handle-id> <x-mm> <y-mm>");
+    Console.Error.WriteLine("  eutherwire move3d <project.eutherwire> <handle-id> <x-mm> <y-mm> <z-mm>");
     Console.Error.WriteLine("  eutherwire insert-vertex <project.eutherwire> <route-id> <index> <x-mm> <y-mm>");
     Console.Error.WriteLine("  eutherwire delete-vertex <project.eutherwire> <route-id> <index>");
     Console.Error.WriteLine("  eutherwire configure <project.eutherwire> <slack-percent> <service-loop-mm>");

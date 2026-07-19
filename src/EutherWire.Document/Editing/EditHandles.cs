@@ -133,6 +133,21 @@ public static class DocumentHandleEditor
         throw new KeyNotFoundException($"Edit handle '{id}' does not exist.");
     }
 
+    public static Point3 RequireSpatialPosition(ProjectDocument document, EditHandleId id)
+    {
+        Point2 position = RequirePosition(document, id);
+        if (document.Devices.TryGetValue(id.ObjectId, out Device? device))
+        {
+            return new Point3(position.X, position.Y, device.ElevationMillimetres);
+        }
+        if (id.Kind == EditHandleKind.Vertex && id.Index >= 0)
+        {
+            if (document.Conduits.TryGetValue(id.ObjectId, out Conduit? conduit)) return conduit.Route.SpatialPoints[id.Index];
+            if (document.Cables.TryGetValue(id.ObjectId, out CableRoute? cable)) return cable.Route.SpatialPoints[id.Index];
+        }
+        return new Point3(position.X, position.Y, 0);
+    }
+
     public static bool CanSetPosition(EditHandleId id) =>
         id.Kind is EditHandleKind.Move or EditHandleKind.Rotate or EditHandleKind.Vertex or EditHandleKind.LabelAnchor;
 
@@ -166,6 +181,59 @@ public static class DocumentHandleEditor
                 return;
             default:
                 throw new InvalidOperationException($"Edit handle '{id}' is an anchor and cannot be moved directly.");
+        }
+    }
+
+    public static void SetSpatialPosition(ProjectDocument document, EditHandleId id, Point3 position)
+    {
+        if (!double.IsFinite(position.X) || !double.IsFinite(position.Y) || !double.IsFinite(position.Z) || position.Z < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(position), "Spatial handle coordinates must be finite and elevation non-negative.");
+        }
+        Device? spatialDevice = id.Kind == EditHandleKind.Move && document.Devices.TryGetValue(id.ObjectId, out Device? candidate)
+            ? candidate
+            : null;
+        if (spatialDevice is not null)
+        {
+            position = MountingSurfaceGeometry.Constrain(document.Space, spatialDevice.MountingSurface, position);
+        }
+        SetPosition(document, id, position.Plan);
+        if (spatialDevice is not null)
+        {
+            spatialDevice.ElevationMillimetres = position.Z;
+            foreach (CableRoute cable in document.Cables.Values.ToArray())
+            {
+                int endpoint = cable.From is PortReference from && from.DeviceId == spatialDevice.Id
+                    ? 0
+                    : cable.To is PortReference to && to.DeviceId == spatialDevice.Id
+                        ? cable.Route.SpatialPoints.Count - 1
+                        : -1;
+                if (endpoint < 0) continue;
+                Polyline route = cable.Route.WithElevation(endpoint, position.Z);
+                document.Replace(cable with { Route = route });
+                if (cable.ConduitId is ObjectId conduitId && document.TryGetConduit(conduitId, out Conduit? conduit) && conduit is not null)
+                {
+                    document.Replace(conduit with { Route = conduit.Route.WithElevation(endpoint, position.Z) });
+                }
+            }
+            return;
+        }
+        if (id.Kind == EditHandleKind.Vertex)
+        {
+            if (document.TryGetConduit(id.ObjectId, out Conduit? conduit) && conduit is not null)
+            {
+                Polyline route = conduit.Route.WithElevation(id.Index, position.Z);
+                document.Replace(conduit with { Route = route });
+                foreach (CableRoute contained in document.Cables.Values.Where(cable => cable.ConduitId == id.ObjectId).ToArray())
+                {
+                    document.Replace(contained with { Route = route });
+                }
+                return;
+            }
+            if (document.TryGetCable(id.ObjectId, out CableRoute? cable) && cable is not null && cable.ConduitId is null)
+            {
+                document.Replace(cable with { Route = cable.Route.WithElevation(id.Index, position.Z) });
+            }
         }
     }
 

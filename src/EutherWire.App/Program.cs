@@ -42,6 +42,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     private ObjectId? _selectedObjectId;
     private ToolKind _activeTool = ToolKind.Select;
     private Point2 _dragOrigin;
+    private Point3 _dragOriginSpatial;
     private string _statusMessage = "Ready";
     private bool _dirty;
     private readonly List<Point3> _draftPoints = [];
@@ -166,32 +167,65 @@ internal sealed class EutherWireApplication : IForgeApplication
             if (_activeHandle is EditHandleId handleId)
             {
                 _dragOrigin = DocumentHandleEditor.RequirePosition(_document, handleId);
+                _dragOriginSpatial = DocumentHandleEditor.RequireSpatialPosition(_document, handleId);
             }
             else
             {
                 _selectedObjectId = HitObject(pointer.X, pointer.Y);
+                if (_selectedObjectId is ObjectId selectedId &&
+                    _document.Devices.TryGetValue(selectedId, out Device? selectedDevice) &&
+                    selectedDevice.MountingSurface != MountingSurface.Free)
+                {
+                    _activeSurface = selectedDevice.MountingSurface;
+                }
                 _statusMessage = _selectedObjectId is ObjectId selected ? $"Selected {selected}" : "Selection cleared";
             }
         }
 
         if (pressed && _activeHandle is EditHandleId active)
         {
-            DocumentHandleEditor.SetPosition(_document, active, ScreenToDocument(pointer.X, pointer.Y));
+            if (_viewMode == ViewMode.ThreeD && active.Kind is EditHandleKind.Move or EditHandleKind.Vertex)
+            {
+                DocumentHandleEditor.SetSpatialPosition(_document, active, SnapSpatialHandle(ScreenToSpatial(pointer.X, pointer.Y)));
+            }
+            else
+            {
+                DocumentHandleEditor.SetPosition(_document, active, ScreenToDocument(pointer.X, pointer.Y));
+            }
         }
 
         if (released && _activeHandle is EditHandleId completed)
         {
-            Point2 destination = DocumentHandleEditor.RequirePosition(_document, completed);
-            DocumentHandleEditor.SetPosition(_document, completed, _dragOrigin);
-            if (destination != _dragOrigin)
+            if (_viewMode == ViewMode.ThreeD && completed.Kind is EditHandleKind.Move or EditHandleKind.Vertex)
             {
-                _history.Execute(_document, new MoveEditHandleCommand(completed, destination));
-                _dirty = true;
-                _statusMessage = $"Moved {completed}";
+                Point3 destination = DocumentHandleEditor.RequireSpatialPosition(_document, completed);
+                DocumentHandleEditor.SetSpatialPosition(_document, completed, _dragOriginSpatial);
+                if (destination != _dragOriginSpatial)
+                {
+                    _history.Execute(_document, new MoveSpatialHandleCommand(completed, destination));
+                    _dirty = true;
+                    _statusMessage = $"Moved {completed} to {destination.X:0}, {destination.Y:0}, Z {destination.Z:0} mm";
+                }
+            }
+            else
+            {
+                Point2 destination = DocumentHandleEditor.RequirePosition(_document, completed);
+                DocumentHandleEditor.SetPosition(_document, completed, _dragOrigin);
+                if (destination != _dragOrigin)
+                {
+                    _history.Execute(_document, new MoveEditHandleCommand(completed, destination));
+                    _dirty = true;
+                    _statusMessage = $"Moved {completed}";
+                }
             }
             _activeHandle = null;
         }
     }
+
+    private static Point3 SnapSpatialHandle(Point3 point) => new(
+        Math.Round(point.X / 100) * 100,
+        Math.Round(point.Y / 100) * 100,
+        Math.Round(point.Z / 100) * 100);
 
     private void AddDraftPoint(int screenX, int screenY)
     {
@@ -669,7 +703,16 @@ internal sealed class EutherWireApplication : IForgeApplication
                 new UiId($"inspector.actual.{selected}"),
                 selectedCable.ActualLengthMillimetres?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
         }
+        if (_document.Devices.TryGetValue(selected, out Device? selectedDevice))
+        {
+            SetDeviceCoordinateEditor(selected, "x", selectedDevice.Position.X);
+            SetDeviceCoordinateEditor(selected, "y", selectedDevice.Position.Y);
+            SetDeviceCoordinateEditor(selected, "z", selectedDevice.ElevationMillimetres);
+        }
     }
+
+    private void SetDeviceCoordinateEditor(ObjectId id, string axis, double value) =>
+        _ui!.SetText(new UiId($"inspector.coordinate.{id}.{axis}"), value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
 
     private void SyncRoomEditors()
     {
@@ -1208,11 +1251,11 @@ internal sealed class EutherWireApplication : IForgeApplication
         DrawProjectAnalysis(canvas, inspectorX);
 
         canvas.FillRect(ToolbarWidth, work.Bottom, work.Width, StatusHeight, 0xff0b1117);
-        Point2 documentPoint = ScreenToDocument(pointer.X, pointer.Y);
+        Point3 spatialPoint = ScreenToSpatial(pointer.X, pointer.Y);
         canvas.DrawText(ToolbarWidth + 12, work.Bottom + 10,
             _viewMode == ViewMode.ThreeD
-                ? $"3D {_activeSurface}   X {documentPoint.X:0} mm   Y {documentPoint.Y:0} mm   Place and route on selected surface"
-                : $"X {documentPoint.X:0} mm   Y {documentPoint.Y:0} mm   Zoom {_camera.PixelsPerMillimetre * 1000:0} px/m   MMB/RMB pan   Wheel zoom",
+                ? $"3D {_activeSurface}   X {spatialPoint.X:0}   Y {spatialPoint.Y:0}   Z {spatialPoint.Z:0} mm   Place and route on selected surface"
+                : $"X {spatialPoint.X:0} mm   Y {spatialPoint.Y:0} mm   Zoom {_camera.PixelsPerMillimetre * 1000:0} px/m   MMB/RMB pan   Wheel zoom",
             0xff91a6b3);
     }
 
@@ -1229,7 +1272,8 @@ internal sealed class EutherWireApplication : IForgeApplication
         if (_document.Devices.TryGetValue(selected, out Device? device))
         {
             canvas.DrawText(inspectorX + 18, 78, $"{device.Kind}  {device.Label}", 0xffc7d4dc);
-            canvas.DrawText(inspectorX + 18, 100, $"{device.Position.X:0}, {device.Position.Y:0} mm  R {device.RotationDegrees:0}°", 0xff9eb0bb);
+            canvas.DrawText(inspectorX + 18, 100, $"X {device.Position.X:0}  Y {device.Position.Y:0}  Z {device.ElevationMillimetres:0} mm", 0xff9eb0bb);
+            canvas.DrawText(inspectorX + 18, 122, $"{device.MountingSurface}  R {device.RotationDegrees:0}°", 0xff9eb0bb);
         }
         else if (_document.Cables.TryGetValue(selected, out CableRoute? cable))
         {
@@ -1294,7 +1338,15 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
 
         DrawChromeButton(canvas, DeleteRect(inspectorX), "DELETE", true);
-        if (cable is not null)
+        if (device is not null)
+        {
+            canvas.DrawText(inspectorX + 18, 356, "EXACT POSITION (MM)", 0xff9eb0bb);
+            DrawDeviceCoordinate(canvas, inspectorX, selected, device, 0, "X");
+            DrawDeviceCoordinate(canvas, inspectorX, selected, device, 1, "Y");
+            DrawDeviceCoordinate(canvas, inspectorX, selected, device, 2, "Z");
+            canvas.DrawText(inspectorX + 18, 508, $"SURFACE  {device.MountingSurface}", 0xff9eb0bb);
+        }
+        else if (cable is not null)
         {
             canvas.DrawText(inspectorX + 18, 356, $"TYPE  {cable.Kind}", 0xff9eb0bb);
             DrawChromeButton(canvas, PropertyMinusRect(inspectorX), "<", true);
@@ -1338,6 +1390,38 @@ internal sealed class EutherWireApplication : IForgeApplication
             DrawChromeButton(canvas, AddVertexRect(inspectorX), "+ POINT", true);
             DrawChromeButton(canvas, DeleteVertexRect(inspectorX), "- POINT", route!.Points.Count > 2);
         }
+    }
+
+    private void DrawDeviceCoordinate(SoftwareCanvas canvas, int inspectorX, ObjectId selected, Device device, int row, string axis)
+    {
+        int y = 374 + row * 42;
+        canvas.DrawText(inspectorX + 18, y + 10, axis, 0xffc7d4dc);
+        double current = axis switch { "X" => device.Position.X, "Y" => device.Position.Y, _ => device.ElevationMillimetres };
+        string key = axis.ToLowerInvariant();
+        UiTextBoxResult text = _ui!.TextBox(
+            new UiId($"inspector.coordinate.{selected}.{key}"),
+            new RectI(inspectorX + 50, y, 188, 30),
+            current.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+            axis,
+            new UiTextBoxOptions(Numeric: true, MaxLength: 12));
+        if (!text.Submitted) return;
+        bool valid = axis == "Z" ? TryParseNonNegative(text.Text, out double value) : TryParseFinite(text.Text, out value);
+        if (!valid)
+        {
+            _statusMessage = axis == "Z" ? "Z must be non-negative" : $"{axis} must be a number";
+            SetDeviceCoordinateEditor(selected, key, current);
+            return;
+        }
+        Point3 destination = axis switch
+        {
+            "X" => new Point3(value, device.Position.Y, device.ElevationMillimetres),
+            "Y" => new Point3(device.Position.X, value, device.ElevationMillimetres),
+            _ => new Point3(device.Position.X, device.Position.Y, value),
+        };
+        _history.Execute(_document, new MoveSpatialHandleCommand(new EditHandleId(selected, EditHandleKind.Move), destination));
+        _dirty = true;
+        _statusMessage = $"Set {selected} {axis} to {value:0.###} mm";
+        SyncSelectedLabelEditor();
     }
 
     private void DrawRoomControls(SoftwareCanvas canvas, int inspectorX)
@@ -1425,6 +1509,10 @@ internal sealed class EutherWireApplication : IForgeApplication
     private static bool TryParseNonNegative(string text, out double value) =>
         double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) &&
         double.IsFinite(value) && value >= 0;
+
+    private static bool TryParseFinite(string text, out double value) =>
+        double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) &&
+        double.IsFinite(value);
 
     private static bool TryParsePositive(string text, out double value) =>
         double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) &&

@@ -35,6 +35,12 @@ The intended workflow is:
 - The active mounting surface has a yellow 3D outline.
 - Existing devices and elevated routes render inside the garage shell.
 - Selection and ordinary X/Y handles work in both views.
+- Device and route-vertex move handles edit X/Y/Z together in 3D, snap to
+  100 mm, propagate connected cable/conduit endpoints, and use undo/redo.
+- Selected devices expose exact numeric X/Y/Z fields in the inspector.
+- `handles` reports X/Y/Z for every stable handle and `move3d` moves a device
+  or free route vertex by semantic handle ID, which gives agents the same
+  precise editing path as the desktop.
 - DEV, WIRE, and PIPE draw on the selected 3D surface with surface-local
   snapping. The symbol palette includes ceiling lights as well as boxes,
   outlets, central equipment, cameras, switches, and access points.
@@ -48,12 +54,10 @@ canvas and remains useful on systems without a GPU API configured.
 
 ### Height and surface handles
 
-- vertical Z handle on devices;
-- vertical Z handle on every route vertex;
 - wall-local horizontal and vertical handles;
 - snap to floor, ceiling, corners, existing routes, ports, and configured
   installation heights;
-- numeric inspector entry for exact X/Y/Z.
+- explicit one-axis Z handles for touch use.
 
 All of these remain command-based and addressable without screen coordinates.
 
