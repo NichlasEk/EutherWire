@@ -82,7 +82,9 @@ All of these remain command-based and addressable without screen coordinates.
 The phone view will consume the same 3D coordinates. Selecting a wall or
 scanning an object label can show height, offsets from corners, route direction,
 actual cable length, status, and attached field photos without translating from
-a second drawing.
+a second drawing. The staged camera, gyroscope, calibration, offline checklist,
+and field-verification design lives in
+[mobile-installation-ar-plan.md](mobile-installation-ar-plan.md).
 
 ## Acceptance target
 
