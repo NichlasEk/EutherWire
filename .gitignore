@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.suo
+
+# Local WaylandForge and developer overrides
+Directory.Build.local.props
+
+# EutherWire working data
+*.eutherwire/autosave/
+*.eutherwire/exports/
+

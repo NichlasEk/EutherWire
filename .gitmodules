@@ -1,0 +1,3 @@
+[submodule "vendor/WaylandForge"]
+	url = https://github.com/NichlasEk/WaylandForge.git
+	path = vendor/WaylandForge
