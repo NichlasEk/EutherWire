@@ -55,10 +55,44 @@ static int Run(string[] arguments)
             return InsertVertex(projectDirectory, arguments[2], arguments[3], arguments[4], arguments[5]);
         case "delete-vertex" when arguments.Length == 4:
             return DeleteVertex(projectDirectory, arguments[2], arguments[3]);
+        case "configure" when arguments.Length == 4:
+            return Configure(projectDirectory, arguments[2], arguments[3]);
+        case "install" when arguments.Length is 4 or 5:
+            return Install(projectDirectory, arguments[2], arguments[3], arguments.Length == 5 ? arguments[4] : null);
         default:
             Usage();
             return 1;
     }
+}
+
+static int Configure(string projectDirectory, string slackText, string serviceLoopText)
+{
+    double slackPercent = double.Parse(slackText, NumberStyles.Float, CultureInfo.InvariantCulture);
+    double serviceLoopMillimetres = double.Parse(serviceLoopText, NumberStyles.Float, CultureInfo.InvariantCulture);
+    ProjectDocument document = ProjectToml.Load(projectDirectory);
+    var history = new CommandHistory();
+    history.Execute(document, new SetPlanningSettingsCommand(new PlanningSettings(slackPercent, serviceLoopMillimetres)));
+    ProjectToml.Save(projectDirectory, document);
+    Console.WriteLine($"Planning: slack={slackPercent:0.###}% service_loop={serviceLoopMillimetres:0.###} mm");
+    return 0;
+}
+
+static int Install(string projectDirectory, string cableText, string statusText, string? actualLengthText)
+{
+    ObjectId cableId = ObjectId.Parse(cableText);
+    if (!Enum.TryParse(statusText, true, out InstallationStatus status))
+    {
+        throw new ArgumentException($"Unknown installation status '{statusText}'.");
+    }
+    double? actualLength = actualLengthText is null
+        ? null
+        : double.Parse(actualLengthText, NumberStyles.Float, CultureInfo.InvariantCulture);
+    ProjectDocument document = ProjectToml.Load(projectDirectory);
+    var history = new CommandHistory();
+    history.Execute(document, new SetCableInstallationCommand(cableId, status, actualLength));
+    ProjectToml.Save(projectDirectory, document);
+    Console.WriteLine($"Installation: {cableId} status={status} actual_length_mm={(actualLength?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown")}");
+    return 0;
 }
 
 static int InsertVertex(string projectDirectory, string routeText, string indexText, string xText, string yText)
@@ -115,6 +149,7 @@ static int PrintReport(ProjectDocument document)
     ProjectAnalysis analysis = ProjectAnalyzer.Analyze(document);
     PrintSummary(document);
     Console.WriteLine($"cable_length_m={analysis.TotalCableLengthMillimetres / 1000:0.###} recommended_m={analysis.RecommendedCableLengthMillimetres / 1000:0.###} conduit_length_m={analysis.TotalConduitLengthMillimetres / 1000:0.###}");
+    Console.WriteLine($"planning_slack_percent={document.Planning.CableSlackPercent:0.###} service_loop_mm={document.Planning.ServiceLoopMillimetres:0.###} actual_cable_m={(analysis.ActualCableLengthMillimetres is double actual ? (actual / 1000).ToString("0.###", CultureInfo.InvariantCulture) : "unknown")}");
     Console.WriteLine("Materials:");
     foreach (MaterialItem item in analysis.Materials)
     {
@@ -145,4 +180,6 @@ static void Usage()
     Console.Error.WriteLine("  eutherwire move <project.eutherwire> <handle-id> <x-mm> <y-mm>");
     Console.Error.WriteLine("  eutherwire insert-vertex <project.eutherwire> <route-id> <index> <x-mm> <y-mm>");
     Console.Error.WriteLine("  eutherwire delete-vertex <project.eutherwire> <route-id> <index>");
+    Console.Error.WriteLine("  eutherwire configure <project.eutherwire> <slack-percent> <service-loop-mm>");
+    Console.Error.WriteLine("  eutherwire install <project.eutherwire> <cable-id> <planned|installed|tested|changed|blocked> [actual-length-mm]");
 }

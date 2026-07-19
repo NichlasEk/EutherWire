@@ -149,6 +149,14 @@ Require(wired.RequireConduit(pipeId).Route.Points.Count == routePointCount - 1, 
 Require(wired.RequireCable(cableId).Route.Points.Count == routePointCount - 1, "Contained cables must follow deleted conduit vertices.");
 Require(connectedHistory.Undo(wired), "Deleted route vertices must be undoable.");
 
+connectedHistory.Execute(wired, new SetPlanningSettingsCommand(new PlanningSettings(15, 500)));
+Require(wired.Planning == new PlanningSettings(15, 500), "Planning margins must be command-based.");
+Require(connectedHistory.Undo(wired) && wired.Planning == new PlanningSettings(), "Planning margins must be undoable.");
+Require(connectedHistory.Redo(wired), "Planning margins must be redoable.");
+connectedHistory.Execute(wired, new SetCableInstallationCommand(cableId, InstallationStatus.Tested, 2350));
+Require(wired.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "Installation state must be stored on its cable.");
+Require(wired.RequireCable(cableId).ActualLengthMillimetres == 2350, "Actual installed cable length must be preserved.");
+
 string serialized = ProjectToml.Serialize(wired);
 ProjectDocument loaded = ProjectToml.Deserialize(serialized);
 string serializedAgain = ProjectToml.Serialize(loaded);
@@ -156,6 +164,9 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
+Require(loaded.SchemaVersion == 2 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "TOML must preserve installation state.");
+Require(loaded.RequireCable(cableId).ActualLengthMillimetres == 2350, "TOML must preserve actual installed length.");
 
 string dangling = serialized.Replace("target:in", "missing:in", StringComparison.Ordinal);
 try

@@ -238,6 +238,50 @@ public sealed class SetConduitDiameterCommand(ObjectId conduitId, double diamete
     }
 }
 
+public sealed class SetPlanningSettingsCommand(PlanningSettings settings) : IDocumentCommand
+{
+    private PlanningSettings? _previous;
+
+    public string Description => "Set project planning margins";
+
+    public void Apply(ProjectDocument document)
+    {
+        settings.Validate();
+        _previous ??= document.Planning;
+        document.Planning = settings;
+    }
+
+    public void Undo(ProjectDocument document) =>
+        document.Planning = _previous ?? throw new InvalidOperationException("Command has not been applied.");
+}
+
+public sealed class SetCableInstallationCommand(
+    ObjectId cableId,
+    InstallationStatus status,
+    double? actualLengthMillimetres) : IDocumentCommand
+{
+    private CableRoute? _previous;
+
+    public string Description => $"Set {cableId} installation state";
+
+    public void Apply(ProjectDocument document)
+    {
+        if (actualLengthMillimetres is double length && (!double.IsFinite(length) || length < 0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(actualLengthMillimetres));
+        }
+        CableRoute cable = document.RequireCable(cableId);
+        _previous ??= cable;
+        document.Replace(cable with { InstallationStatus = status, ActualLengthMillimetres = actualLengthMillimetres });
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        _ = document.RequireCable(cableId);
+        document.Replace(_previous ?? throw new InvalidOperationException("Command has not been applied."));
+    }
+}
+
 public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
 {
     private object? _removed;

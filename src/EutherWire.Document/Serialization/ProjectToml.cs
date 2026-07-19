@@ -19,6 +19,8 @@ public static class ProjectToml
                 Name = document.Name,
                 Units = "mm",
                 SchemaVersion = document.SchemaVersion,
+                CableSlackPercent = document.Planning.CableSlackPercent,
+                ServiceLoopMillimetres = document.Planning.ServiceLoopMillimetres,
             },
             Devices = document.Devices.Values
                 .OrderBy(device => device.Id.Value, StringComparer.Ordinal)
@@ -62,16 +64,21 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion != 1)
+        if (file.Project.SchemaVersion is < 1 or > 2)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 or 2.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
             throw new ProjectFormatException($"Unsupported units '{file.Project.Units}'; expected 'mm'.");
         }
 
-        var document = new ProjectDocument(RequireText(file.Project.Name, "project.name"));
+        var document = new ProjectDocument(RequireText(file.Project.Name, "project.name"))
+        {
+            Planning = new PlanningSettings(
+                NonNegative(file.Project.CableSlackPercent, "project.cable_slack_percent", 100),
+                NonNegative(file.Project.ServiceLoopMillimetres, "project.service_loop_mm")),
+        };
         foreach (DeviceFile source in file.Devices)
         {
             var ports = source.Ports.Select(port => new Port(
@@ -107,7 +114,9 @@ public static class ProjectToml
                 Polyline(source.Points, $"cables[{source.Id}].points"),
                 PortReference(source.From),
                 PortReference(source.To),
-                string.IsNullOrWhiteSpace(source.Conduit) ? null : Id(source.Conduit, "conduit reference")));
+                string.IsNullOrWhiteSpace(source.Conduit) ? null : Id(source.Conduit, "conduit reference"),
+                ParseEnum<InstallationStatus>(source.InstallationStatus, "installation status"),
+                OptionalNonNegative(source.ActualLengthMillimetres, $"cables[{source.Id}].actual_length_mm")));
         }
         foreach (AnnotationFile source in file.Annotations)
         {
@@ -169,6 +178,8 @@ public static class ProjectToml
         From = cable.From is PortReference from ? $"{from.DeviceId}:{from.PortId}" : null,
         To = cable.To is PortReference to ? $"{to.DeviceId}:{to.PortId}" : null,
         Conduit = cable.ConduitId?.Value,
+        InstallationStatus = Name(cable.InstallationStatus),
+        ActualLengthMillimetres = cable.ActualLengthMillimetres,
     };
 
     private static AnnotationFile ToFile(Annotation annotation) => new()
@@ -268,6 +279,18 @@ public static class ProjectToml
         return value;
     }
 
+    private static double NonNegative(double value, string field, double? maximum = null)
+    {
+        if (!double.IsFinite(value) || value < 0 || maximum is double limit && value > limit)
+        {
+            throw new ProjectFormatException($"{field} must be a non-negative finite number{(maximum is double max ? $" no greater than {max}" : string.Empty)}.");
+        }
+        return value;
+    }
+
+    private static double? OptionalNonNegative(double? value, string field) =>
+        value is double number ? NonNegative(number, field) : null;
+
     private static string RequireText(string? value, string field) =>
         !string.IsNullOrWhiteSpace(value) ? value : throw new ProjectFormatException($"Missing or empty {field}.");
 
@@ -325,6 +348,12 @@ public static class ProjectToml
 
         [JsonPropertyName("schema_version")]
         public int SchemaVersion { get; set; }
+
+        [JsonPropertyName("cable_slack_percent")]
+        public double CableSlackPercent { get; set; } = 10;
+
+        [JsonPropertyName("service_loop_mm")]
+        public double ServiceLoopMillimetres { get; set; } = 1000;
     }
 
     private sealed class DeviceFile
@@ -400,6 +429,12 @@ public static class ProjectToml
 
         [JsonPropertyName("conduit")]
         public string? Conduit { get; set; }
+
+        [JsonPropertyName("installation_status")]
+        public string InstallationStatus { get; set; } = "planned";
+
+        [JsonPropertyName("actual_length_mm")]
+        public double? ActualLengthMillimetres { get; set; }
     }
 
     private sealed class AnnotationFile

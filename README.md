@@ -43,10 +43,14 @@ dotnet run --project src/EutherWire.Cli -- validate examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- report examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- insert-vertex examples/garage.eutherwire camera-north-pipe 1 6500 -1000
 dotnet run --project src/EutherWire.Cli -- delete-vertex examples/garage.eutherwire camera-north-pipe 1
+dotnet run --project src/EutherWire.Cli -- configure examples/garage.eutherwire 10 1000
+dotnet run --project src/EutherWire.Cli -- install examples/garage.eutherwire camera-north-cat6 tested 8200
 ```
 
 `project.toml` writes are deterministic and atomic. A save/load/save round trip
-must produce no diff.
+must produce no diff. Planning slack, service-loop length, cable installation
+state, and measured installed length live in the same versioned model so a
+future mobile installation client does not need a second source of truth.
 
 ## Status
 

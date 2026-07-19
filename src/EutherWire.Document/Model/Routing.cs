@@ -16,6 +16,15 @@ public enum CableKind
     LowVoltageDc,
 }
 
+public enum InstallationStatus
+{
+    Planned,
+    Installed,
+    Tested,
+    Changed,
+    Blocked,
+}
+
 public sealed record CableRoute(
     ObjectId Id,
     string Label,
@@ -23,7 +32,9 @@ public sealed record CableRoute(
     Polyline Route,
     PortReference? From = null,
     PortReference? To = null,
-    ObjectId? ConduitId = null);
+    ObjectId? ConduitId = null,
+    InstallationStatus InstallationStatus = InstallationStatus.Planned,
+    double? ActualLengthMillimetres = null);
 
 public enum InstallationMethod
 {

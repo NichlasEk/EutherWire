@@ -879,6 +879,8 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             canvas.DrawText(inspectorX + 18, 78, $"{cable.Kind}  {cable.Label}", 0xffc7d4dc);
             canvas.DrawText(inspectorX + 18, 100, $"Length {cable.Route.LengthMillimetres / 1000:0.00} m", 0xff9eb0bb);
+            string actual = cable.ActualLengthMillimetres is double length ? $"  Actual {length / 1000:0.00} m" : string.Empty;
+            canvas.DrawText(inspectorX + 18, 122, $"{cable.InstallationStatus}{actual}", 0xff9eb0bb);
         }
         else if (_document.Conduits.TryGetValue(selected, out Conduit? conduit))
         {

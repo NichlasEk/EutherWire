@@ -1,7 +1,9 @@
 [project]
 name = "Garage Draft"
 units = "mm"
-schema_version = 1
+schema_version = 2
+cable_slack_percent = 10.0
+service_loop_mm = 1000.0
 [[devices]]
 id = "camera-north"
 kind = "camera"
@@ -53,3 +55,4 @@ points = [[6500.0, 450.0], [6500.0, -2600.0], [10850.0, -2600.0]]
 from = "poe-switch:port-1"
 to = "camera-north:eth0"
 conduit = "camera-north-pipe"
+installation_status = "planned"

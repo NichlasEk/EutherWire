@@ -31,6 +31,7 @@ public sealed record ConduitFill(
 public sealed record ProjectAnalysis(
     double TotalCableLengthMillimetres,
     double RecommendedCableLengthMillimetres,
+    double? ActualCableLengthMillimetres,
     double TotalConduitLengthMillimetres,
     IReadOnlyList<MaterialItem> Materials,
     IReadOnlyList<ConduitFill> ConduitFills,
@@ -42,8 +43,6 @@ public sealed record ProjectAnalysis(
 
 public static class ProjectAnalyzer
 {
-    private const double RecommendedCableMargin = 0.10;
-    private const double ServiceLoopMillimetres = 1000;
     private const double FillWarningRatio = 0.40;
 
     private static readonly IReadOnlyDictionary<CableKind, double> ApproximateCableDiameters =
@@ -93,13 +92,16 @@ public static class ProjectAnalyzer
         }
 
         double cableLength = document.Cables.Values.Sum(cable => cable.Route.LengthMillimetres);
-        double recommendedCableLength = document.Cables.Values.Sum(cable =>
-            cable.Route.LengthMillimetres * (1 + RecommendedCableMargin) + ServiceLoopMillimetres);
+        double recommendedCableLength = document.Cables.Values.Sum(cable => RecommendedLength(document, cable));
+        double? actualCableLength = document.Cables.Values.Any(cable => cable.ActualLengthMillimetres.HasValue)
+            ? document.Cables.Values.Sum(cable => cable.ActualLengthMillimetres ?? 0)
+            : null;
         double conduitLength = document.Conduits.Values.Sum(conduit => conduit.Route.LengthMillimetres);
 
         return new ProjectAnalysis(
             cableLength,
             recommendedCableLength,
+            actualCableLength,
             conduitLength,
             BuildMaterials(document),
             fills,
@@ -271,7 +273,7 @@ public static class ProjectAnalyzer
                 "cable",
                 group.Key.ToString(),
                 group.Key.ToString(),
-                group.Sum(cable => cable.Route.LengthMillimetres * (1 + RecommendedCableMargin) + ServiceLoopMillimetres) / 1000,
+                group.Sum(cable => RecommendedLength(document, cable)) / 1000,
                 "m")));
         materials.AddRange(document.Conduits.Values
             .GroupBy(conduit => conduit.InnerDiameterMillimetres)
@@ -284,4 +286,7 @@ public static class ProjectAnalyzer
                 "m")));
         return materials;
     }
+
+    private static double RecommendedLength(ProjectDocument document, CableRoute cable) =>
+        cable.Route.LengthMillimetres * (1 + document.Planning.CableSlackPercent / 100) + document.Planning.ServiceLoopMillimetres;
 }
