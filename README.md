@@ -26,11 +26,22 @@ Build and run the current native prototype inside a Wayland session:
 
 ```sh
 dotnet build src/EutherWire.App/EutherWire.App.csproj
-dotnet run --project src/EutherWire.App --no-build
+dotnet run --project src/EutherWire.App --no-build -- examples/garage.eutherwire
 ```
 
 Use the middle or right mouse button to pan and the wheel to zoom around the
 pointer. Yellow object handles and blue route-vertex handles are draggable.
+
+The CLI uses the same semantic handles as the UI:
+
+```sh
+dotnet run --project src/EutherWire.Cli -- handles examples/garage.eutherwire
+dotnet run --project src/EutherWire.Cli -- move examples/garage.eutherwire camera-north-pipe:vertex:1 7000 -3000
+dotnet run --project src/EutherWire.Cli -- validate examples/garage.eutherwire
+```
+
+`project.toml` writes are deterministic and atomic. A save/load/save round trip
+must produce no diff.
 
 ## Status
 

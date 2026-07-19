@@ -2,6 +2,7 @@ using EutherWire.Document.Commands;
 using EutherWire.Document.Editing;
 using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
+using EutherWire.Document.Serialization;
 
 static void Require(bool condition, string message)
 {
@@ -84,5 +85,23 @@ Require(wired.RequireCable(cableId).Route.Points[^1] == new Point2(2400, 300), "
 Require(wired.RequireConduit(pipeId).Route.Points[^1] == new Point2(2400, 300), "Matching conduit ends must follow connected cable ends.");
 connectedHistory.Execute(wired, new MoveEditHandleCommand(new EditHandleId(pipeId, EditHandleKind.Vertex, 1), new Point2(1000, -500)));
 Require(wired.RequireCable(cableId).Route.Points[1] == new Point2(1000, -500), "Contained cable geometry must follow conduit vertex handles.");
+
+string serialized = ProjectToml.Serialize(wired);
+ProjectDocument loaded = ProjectToml.Deserialize(serialized);
+string serializedAgain = ProjectToml.Serialize(loaded);
+Require(serializedAgain == serialized, "TOML save/load/save must be byte-identical.");
+Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
+Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
+
+string dangling = serialized.Replace("target:in", "missing:in", StringComparison.Ordinal);
+try
+{
+    _ = ProjectToml.Deserialize(dangling);
+    throw new InvalidOperationException("Dangling TOML references must be rejected.");
+}
+catch (ProjectFormatException exception)
+{
+    Require(exception.Message.Contains("missing device", StringComparison.Ordinal), "Dangling references need useful diagnostics.");
+}
 
 Console.WriteLine("EutherWire document checks passed.");

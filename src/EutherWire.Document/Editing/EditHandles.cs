@@ -24,6 +24,32 @@ public readonly record struct EditHandleId(
     int Index = -1,
     string? Name = null)
 {
+    public static EditHandleId Parse(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        string[] parts = value.Split(':');
+        if (parts.Length < 2 || parts.Length > 3 ||
+            !Enum.TryParse(parts[1], true, out EditHandleKind kind))
+        {
+            throw new FormatException($"Invalid edit handle '{value}'.");
+        }
+
+        ObjectId objectId = ObjectId.Parse(parts[0]);
+        if (parts.Length == 2)
+        {
+            return new EditHandleId(objectId, kind);
+        }
+        if (kind == EditHandleKind.Vertex && int.TryParse(parts[2], out int index) && index >= 0)
+        {
+            return new EditHandleId(objectId, kind, index);
+        }
+        if (kind == EditHandleKind.Port && !string.IsNullOrWhiteSpace(parts[2]))
+        {
+            return new EditHandleId(objectId, kind, Name: parts[2]);
+        }
+        throw new FormatException($"Invalid edit handle '{value}'.");
+    }
+
     public override string ToString()
     {
         string suffix = Name is not null ? $":{Name}" : Index >= 0 ? $":{Index}" : string.Empty;

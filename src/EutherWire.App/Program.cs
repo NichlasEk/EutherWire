@@ -3,12 +3,20 @@ using EutherWire.Document.Commands;
 using EutherWire.Document.Editing;
 using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
+using EutherWire.Document.Serialization;
+using EutherWire.Document.Templates;
 using SystemRegisIII.WaylandForge.App;
 using SystemRegisIII.WaylandForge.Ui;
 
+ProjectDocument startupDocument = args.Length > 0
+    ? ProjectToml.Load(args[0])
+    : Directory.Exists(Path.Combine("examples", "garage.eutherwire"))
+        ? ProjectToml.Load(Path.Combine("examples", "garage.eutherwire"))
+        : ProjectTemplates.CreateGarageDraft();
+
 return ForgeApplicationHost.Run(
-    new EutherWireApplication(),
-    new ForgeWindowOptions(1280, 800, "EutherWire - Garage Draft"));
+    new EutherWireApplication(startupDocument),
+    new ForgeWindowOptions(1280, 800, $"EutherWire - {startupDocument.Name}"));
 
 internal sealed class EutherWireApplication : IForgeApplication
 {
@@ -17,12 +25,17 @@ internal sealed class EutherWireApplication : IForgeApplication
     private const int StatusHeight = 28;
 
     private readonly CanvasCamera _camera = new();
-    private readonly ProjectDocument _document = CreateGarageDraft();
+    private readonly ProjectDocument _document;
     private readonly CommandHistory _history = new();
     private PointerState _previousPointer;
     private uint _handledScrollSerial;
     private EditHandleId? _activeHandle;
     private Point2 _dragOrigin;
+
+    public EutherWireApplication(ProjectDocument document)
+    {
+        _document = document;
+    }
 
     public void Render(in ForgeFrame frame)
     {
@@ -259,47 +272,4 @@ internal sealed class EutherWireApplication : IForgeApplication
         _ => 0xffd7e0e5,
     };
 
-    private static ProjectDocument CreateGarageDraft()
-    {
-        var document = new ProjectDocument("Garage Draft");
-        document.Add(new Device(
-            ObjectId.Parse("main-board"),
-            DeviceKind.DistributionBoard,
-            new Point2(0, 0),
-            "CENTRAL",
-            [new Port("garage-feed", PortKind.MainsPower, new Point2(750, 0))]));
-        document.Add(new Device(
-            ObjectId.Parse("poe-switch"),
-            DeviceKind.PoeSwitch,
-            new Point2(6500, 800),
-            "POE-SW",
-            [
-                new Port("uplink", PortKind.Ethernet, new Point2(-650, 0)),
-                new Port("port-1", PortKind.EthernetPoe, new Point2(0, -350)),
-            ]));
-        document.Add(new Device(
-            ObjectId.Parse("camera-north"),
-            DeviceKind.Camera,
-            new Point2(11200, -2600),
-            "KAM-N",
-            [new Port("eth0", PortKind.EthernetPoe, new Point2(-350, 0))]));
-
-        Point2[] route = [new(6500, 450), new(6500, -2600), new(10850, -2600)];
-        ObjectId conduitId = ObjectId.Parse("camera-north-pipe");
-        document.Add(new Conduit(
-            conduitId,
-            "RÖR-R07",
-            25,
-            new Polyline(route),
-            InstallationMethod.Concealed));
-        document.Add(new CableRoute(
-            ObjectId.Parse("camera-north-cat6"),
-            "KAM-N-CAT6",
-            CableKind.Cat6,
-            new Polyline(route),
-            new PortReference(ObjectId.Parse("poe-switch"), "port-1"),
-            new PortReference(ObjectId.Parse("camera-north"), "eth0"),
-            conduitId));
-        return document;
-    }
 }

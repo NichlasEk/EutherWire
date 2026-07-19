@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/EutherWire.App/EutherWire.App.csproj" />
+    <Project Path="src/EutherWire.Cli/EutherWire.Cli.csproj" />
     <Project Path="src/EutherWire.Document/EutherWire.Document.csproj" />
   </Folder>
   <Folder Name="/tests/">
