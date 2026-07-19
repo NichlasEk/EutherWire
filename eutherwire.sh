@@ -29,6 +29,7 @@ Usage:
   ./eutherwire.sh report [PROJECT]
   ./eutherwire.sh properties [PROJECT]
   ./eutherwire.sh export [PROJECT] [OUTPUT.svg]
+  ./eutherwire.sh png [PROJECT] [OUTPUT.png]
   ./eutherwire.sh help
 
 The default demo is stored under .eutherwire-work/ and never modifies the
@@ -129,6 +130,13 @@ case "$EW_COMMAND" in
         build
         require_project "$EW_PROJECT"
         "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- export-svg "$EW_PROJECT" "$EW_OUTPUT"
+        ;;
+    png)
+        EW_PROJECT="${2:-$EW_EXAMPLE_PROJECT}"
+        EW_OUTPUT="${3:-$EW_WORK_DIR/garage.png}"
+        build
+        require_project "$EW_PROJECT"
+        "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- export-png "$EW_PROJECT" "$EW_OUTPUT"
         ;;
     *)
         usage >&2

@@ -7,6 +7,7 @@ using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 using EutherWire.Document.Serialization;
 using EutherWire.Document.Templates;
+using EutherWire.Export;
 
 try
 {
@@ -61,6 +62,10 @@ static int Run(string[] arguments)
             return SetProperty(projectDirectory, arguments[2], arguments[3]);
         case "export-svg" when arguments.Length == 3:
             SvgProjectExporter.Save(arguments[2], ProjectToml.Load(projectDirectory));
+            Console.WriteLine($"Exported {Path.GetFullPath(arguments[2])}");
+            return 0;
+        case "export-png" when arguments.Length == 3:
+            PngProjectExporter.Save(arguments[2], ProjectToml.Load(projectDirectory));
             Console.WriteLine($"Exported {Path.GetFullPath(arguments[2])}");
             return 0;
         case "move" when arguments.Length == 5:
@@ -206,6 +211,7 @@ static void Usage()
     Console.Error.WriteLine("  eutherwire properties <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire set-property <project.eutherwire> <property-handle> <value>");
     Console.Error.WriteLine("  eutherwire export-svg <project.eutherwire> <output.svg>");
+    Console.Error.WriteLine("  eutherwire export-png <project.eutherwire> <output.png>");
     Console.Error.WriteLine("  eutherwire move <project.eutherwire> <handle-id> <x-mm> <y-mm>");
     Console.Error.WriteLine("  eutherwire insert-vertex <project.eutherwire> <route-id> <index> <x-mm> <y-mm>");
     Console.Error.WriteLine("  eutherwire delete-vertex <project.eutherwire> <route-id> <index>");

@@ -6,6 +6,7 @@ using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 using EutherWire.Document.Serialization;
 using EutherWire.Document.Templates;
+using EutherWire.Export;
 using SystemRegisIII.WaylandForge.App;
 using SystemRegisIII.WaylandForge.Ui;
 
@@ -378,6 +379,11 @@ internal sealed class EutherWireApplication : IForgeApplication
             SaveProject();
             return true;
         }
+        if (ExportPngRect(inspectorX).Contains(pointer.X, pointer.Y))
+        {
+            ExportPng();
+            return true;
+        }
         if (ButtonRect(inspectorX, 1).Contains(pointer.X, pointer.Y))
         {
             if (_history.Undo(_document))
@@ -612,6 +618,25 @@ internal sealed class EutherWireApplication : IForgeApplication
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             _statusMessage = $"Save failed: {exception.Message}";
+        }
+    }
+
+    private void ExportPng()
+    {
+        if (_projectDirectory is null)
+        {
+            _statusMessage = "No project directory; save the project before exporting";
+            return;
+        }
+        try
+        {
+            string path = Path.Combine(_projectDirectory, "exports", "plan.png");
+            PngProjectExporter.Save(path, _document);
+            _statusMessage = $"Exported {path}";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _statusMessage = $"PNG export failed: {exception.Message}";
         }
     }
 
@@ -874,7 +899,8 @@ internal sealed class EutherWireApplication : IForgeApplication
         DrawChromeButton(canvas, ButtonRect(inspectorX, 0), "SAVE", _projectDirectory is not null);
         DrawChromeButton(canvas, ButtonRect(inspectorX, 1), "UNDO", _history.UndoCount > 0);
         DrawChromeButton(canvas, ButtonRect(inspectorX, 2), "REDO", _history.RedoCount > 0);
-        canvas.DrawText(inspectorX + 18, 202, _dirty ? "MODIFIED" : "SAVED", _dirty ? 0xffffcc66 : 0xff61e294);
+        DrawChromeButton(canvas, ExportPngRect(inspectorX), "PNG", _projectDirectory is not null);
+        canvas.DrawText(inspectorX + 100, 202, _dirty ? "MODIFIED" : "SAVED", _dirty ? 0xffffcc66 : 0xff61e294);
         canvas.DrawText(inspectorX + 18, 226, _statusMessage, 0xff9eb0bb);
         if (_draftPoints.Count > 0)
         {
@@ -1063,6 +1089,8 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private static RectI ButtonRect(int inspectorX, int index) =>
         new(inspectorX + 18 + index * 78, 146, 68, 32);
+
+    private static RectI ExportPngRect(int inspectorX) => new(inspectorX + 18, 190, 68, 30);
 
     private static RectI FinishRect(int inspectorX) => new(inspectorX + 18, 260, 104, 32);
     private static RectI CancelRect(int inspectorX) => new(inspectorX + 134, 260, 104, 32);

@@ -37,6 +37,7 @@ modified. Other useful modes are:
 ./eutherwire.sh report
 ./eutherwire.sh properties
 ./eutherwire.sh export
+./eutherwire.sh png
 ./eutherwire.sh run path/to/project.eutherwire
 ```
 
@@ -69,6 +70,7 @@ dotnet run --project src/EutherWire.Cli -- delete-vertex examples/garage.eutherw
 dotnet run --project src/EutherWire.Cli -- configure examples/garage.eutherwire 10 1000
 dotnet run --project src/EutherWire.Cli -- install examples/garage.eutherwire camera-north-cat6 tested 8200
 dotnet run --project src/EutherWire.Cli -- export-svg examples/garage.eutherwire garage.svg
+dotnet run --project src/EutherWire.Cli -- export-png examples/garage.eutherwire garage.png
 ```
 
 `project.toml` writes are deterministic and atomic. A save/load/save round trip
@@ -80,10 +82,11 @@ Geometry and properties both have stable semantic addresses. For example,
 `camera-north-cat6:property:actual_length_mm` edits installation data through
 the same undoable command layer used by the desktop UI.
 
-SVG export is generated directly from document coordinates with stable object
+SVG and PNG exports are generated directly from document coordinates with stable object
 IDs and deterministic ordering. It is independent of the current desktop zoom,
 selection, and window size, making it suitable for Git diffs and later PDF
-output.
+output. The desktop `PNG` button writes `exports/plan.png` inside the open
+project directory.
 
 ## Status
 

@@ -4,5 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/EutherWire.Document/EutherWire.Document.csproj" />
+    <ProjectReference Include="../../src/EutherWire.Export/EutherWire.Export.csproj" />
   </ItemGroup>
 </Project>

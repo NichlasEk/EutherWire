@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../EutherWire.Document/EutherWire.Document.csproj" />
-    <ProjectReference Include="../EutherWire.Export/EutherWire.Export.csproj" />
+    <ProjectReference Include="../../vendor/WaylandForge/src/SystemRegisIII.WaylandForge.Ui/SystemRegisIII.WaylandForge.Ui.csproj" />
   </ItemGroup>
 </Project>

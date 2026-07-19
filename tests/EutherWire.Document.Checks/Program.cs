@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Security.Cryptography;
 using System.Xml.Linq;
 using EutherWire.Document.Analysis;
 using EutherWire.Document.Commands;
@@ -7,6 +9,7 @@ using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 using EutherWire.Document.Serialization;
 using EutherWire.Document.Templates;
+using EutherWire.Export;
 
 static void Require(bool condition, string message)
 {
@@ -207,6 +210,13 @@ XDocument svgXml = XDocument.Parse(garageSvg);
 XNamespace svgNamespace = "http://www.w3.org/2000/svg";
 Require(svgXml.Descendants(svgNamespace + "polyline").Any(element => (string?)element.Attribute("id") == "camera-north-cat6"), "SVG export must contain cable geometry with stable object IDs.");
 Require(svgXml.Descendants(svgNamespace + "g").Any(element => (string?)element.Attribute("id") == "camera-north"), "SVG export must contain device symbols with stable object IDs.");
+
+byte[] garagePng = PngProjectExporter.Export(garageDocument);
+Require(PngProjectExporter.Export(garageDocument).SequenceEqual(garagePng), "PNG export must be byte-deterministic.");
+Require(garagePng.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }), "PNG export needs a valid PNG signature.");
+Require(BinaryPrimitives.ReadInt32BigEndian(garagePng.AsSpan(16, 4)) == 1600, "Wide projects must use the configured maximum PNG width.");
+Require(BinaryPrimitives.ReadInt32BigEndian(garagePng.AsSpan(20, 4)) > 0, "PNG export needs a positive calculated height.");
+Require(Convert.ToHexString(SHA256.HashData(garagePng)).ToLowerInvariant() == "8c7db562b106a83b69f19e88f42998506b76dea138a667de23c55b1337d5184d", "Garage Draft PNG must retain its reference render hash.");
 
 var invalid = new ProjectDocument("Analysis diagnostics");
 ObjectId mainsId = ObjectId.Parse("mains");

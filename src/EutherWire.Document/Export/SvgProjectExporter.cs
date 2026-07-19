@@ -7,12 +7,10 @@ namespace EutherWire.Document.Export;
 
 public static class SvgProjectExporter
 {
-    private const double MarginMillimetres = 500;
-
     public static string Export(ProjectDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
-        Bounds bounds = CalculateBounds(document).Expand(MarginMillimetres);
+        ProjectBounds bounds = ProjectExportLayout.CalculateBounds(document).Expand(ProjectExportLayout.MarginMillimetres);
         var svg = new StringBuilder();
         svg.Append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         svg.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"")
@@ -41,7 +39,8 @@ public static class SvgProjectExporter
         svg.Append("  <g id=\"devices\" font-family=\"sans-serif\" font-size=\"170\">\n");
         foreach (Device device in document.Devices.Values.OrderBy(item => item.Id.Value, StringComparer.Ordinal))
         {
-            (double width, double height, string color) = DeviceStyle(device.Kind);
+            ExportDeviceStyle style = ProjectExportLayout.DeviceStyle(device.Kind);
+            (double width, double height, string color) = (style.Width, style.Height, style.SvgColor);
             svg.Append("    <g id=\"").Append(Xml(device.Id.Value)).Append("\" transform=\"rotate(")
                 .Append(Number(device.RotationDegrees)).Append(' ').Append(Number(device.Position.X)).Append(' ').Append(Number(device.Position.Y)).Append(")\">\n");
             svg.Append("      <rect x=\"").Append(Number(device.Position.X - width / 2)).Append("\" y=\"")
@@ -95,29 +94,6 @@ public static class SvgProjectExporter
         svg.Append("\"/>\n");
     }
 
-    private static Bounds CalculateBounds(ProjectDocument document)
-    {
-        var bounds = new Bounds();
-        foreach (Conduit conduit in document.Conduits.Values) bounds.Include(conduit.Route.Points);
-        foreach (CableRoute cable in document.Cables.Values) bounds.Include(cable.Route.Points);
-        foreach (Annotation annotation in document.Annotations.Values) bounds.Include(annotation.Position);
-        foreach (Device device in document.Devices.Values)
-        {
-            (double width, double height, _) = DeviceStyle(device.Kind);
-            bounds.Include(new Point2(device.Position.X - width / 2, device.Position.Y - height / 2));
-            bounds.Include(new Point2(device.Position.X + width / 2, device.Position.Y + height / 2));
-        }
-        return bounds.HasValue ? bounds : new Bounds(-500, -500, 500, 500);
-    }
-
-    private static (double Width, double Height, string Color) DeviceStyle(DeviceKind kind) => kind switch
-    {
-        DeviceKind.DistributionBoard => (1500, 900, "#b88115"),
-        DeviceKind.PoeSwitch => (1300, 700, "#167fae"),
-        DeviceKind.Camera => (700, 500, "#258a4d"),
-        _ => (800, 600, "#667985"),
-    };
-
     private static string Number(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
     private static string Xml(string value) => value
@@ -127,49 +103,4 @@ public static class SvgProjectExporter
         .Replace("\"", "&quot;", StringComparison.Ordinal)
         .Replace("'", "&apos;", StringComparison.Ordinal);
 
-    private sealed class Bounds
-    {
-        public Bounds()
-        {
-        }
-
-        public Bounds(double minX, double minY, double maxX, double maxY)
-        {
-            MinX = minX;
-            MinY = minY;
-            MaxX = maxX;
-            MaxY = maxY;
-            HasValue = true;
-        }
-
-        public double MinX { get; private set; }
-        public double MinY { get; private set; }
-        public double MaxX { get; private set; }
-        public double MaxY { get; private set; }
-        public double Width => MaxX - MinX;
-        public double Height => MaxY - MinY;
-        public bool HasValue { get; private set; }
-
-        public void Include(IEnumerable<Point2> points)
-        {
-            foreach (Point2 point in points) Include(point);
-        }
-
-        public void Include(Point2 point)
-        {
-            if (!HasValue)
-            {
-                MinX = MaxX = point.X;
-                MinY = MaxY = point.Y;
-                HasValue = true;
-                return;
-            }
-            MinX = Math.Min(MinX, point.X);
-            MinY = Math.Min(MinY, point.Y);
-            MaxX = Math.Max(MaxX, point.X);
-            MaxY = Math.Max(MaxY, point.Y);
-        }
-
-        public Bounds Expand(double amount) => new(MinX - amount, MinY - amount, MaxX + amount, MaxY + amount);
-    }
 }
