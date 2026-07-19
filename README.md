@@ -40,9 +40,10 @@ outline is the active drawing surface. Choose `DEV` to place a box or lamp on
 it, or `WIRE`/`PIPE` to route directly on it. With nothing selected, the right
 panel edits room width, depth, height, wall thickness, and ceiling thickness.
 Selecting a device exposes exact X/Y/Z fields, while its move handle follows
-the named surface in 3D and remains undoable.
-See
-[docs/garage-3d-plan.md](docs/garage-3d-plan.md).
+the named surface in 3D and remains undoable. Use the right mouse button to
+orbit, middle mouse button to pan, and wheel to zoom. The `CAMERA` control or
+`F10` cycles ISO, NORTH, EAST, SOUTH, and WEST views. See
+[docs/garage-3d-plan.md](docs/garage-3d-plan.md) for the remaining roadmap.
 
 This initializes WaylandForge if needed, builds the solution, and opens a
 writable Garage Draft under `.eutherwire-work/`. The tracked example is never

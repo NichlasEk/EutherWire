@@ -11,6 +11,7 @@ using SystemRegisIII.WaylandForge.App;
 using SystemRegisIII.WaylandForge.Ui;
 
 bool startupIn3D = args.Contains("--3d", StringComparer.Ordinal);
+string? startupCamera = args.FirstOrDefault(argument => argument.StartsWith("--camera=", StringComparison.OrdinalIgnoreCase))?["--camera=".Length..];
 string? requestedDirectory = args.FirstOrDefault(argument => !argument.StartsWith("--", StringComparison.Ordinal));
 string? startupDirectory = requestedDirectory is not null
     ? requestedDirectory
@@ -22,7 +23,7 @@ ProjectDocument startupDocument = startupDirectory is not null
     : ProjectTemplates.CreateGarageDraft();
 
 return ForgeApplicationHost.Run(
-    new EutherWireApplication(startupDocument, startupDirectory, startupIn3D),
+    new EutherWireApplication(startupDocument, startupDirectory, startupIn3D, startupCamera),
     new ForgeWindowOptions(1280, 800, $"EutherWire - {startupDocument.Name}"));
 
 internal sealed class EutherWireApplication : IForgeApplication
@@ -54,11 +55,12 @@ internal sealed class EutherWireApplication : IForgeApplication
     private ViewMode _viewMode;
     private MountingSurface _activeSurface = MountingSurface.FloorInterior;
 
-    public EutherWireApplication(ProjectDocument document, string? projectDirectory, bool startIn3D = false)
+    public EutherWireApplication(ProjectDocument document, string? projectDirectory, bool startIn3D = false, string? startupCamera = null)
     {
         _document = document;
         _projectDirectory = projectDirectory;
         _viewMode = startIn3D ? ViewMode.ThreeD : ViewMode.Plan;
+        if (!string.IsNullOrWhiteSpace(startupCamera)) _camera3D.SetNamedView(startupCamera);
     }
 
     public void Render(in ForgeFrame frame)
@@ -105,16 +107,40 @@ internal sealed class EutherWireApplication : IForgeApplication
     public void Key(in ForgeKeyEvent input)
     {
         const uint keyF9 = 67;
-        if (!input.Pressed || input.KeyCode != keyF9) return;
-        _viewMode = _viewMode == ViewMode.Plan ? ViewMode.ThreeD : ViewMode.Plan;
-        _activeHandle = null;
-        _statusMessage = _viewMode == ViewMode.ThreeD ? "3D view · drawing plane: floor" : "Plan view";
+        const uint keyF10 = 68;
+        if (!input.Pressed) return;
+        if (input.KeyCode == keyF9)
+        {
+            _viewMode = _viewMode == ViewMode.Plan ? ViewMode.ThreeD : ViewMode.Plan;
+            _activeHandle = null;
+            _statusMessage = _viewMode == ViewMode.ThreeD ? "3D view · drawing plane: floor" : "Plan view";
+        }
+        else if (input.KeyCode == keyF10 && _viewMode == ViewMode.ThreeD)
+        {
+            _camera3D.CycleView();
+            _statusMessage = $"Camera: {_camera3D.ViewLabel}";
+        }
     }
 
     private void HandleNavigation(in ForgeFrame frame)
     {
-        if (_viewMode == ViewMode.ThreeD) return;
         PointerState pointer = frame.Pointer;
+        if (_viewMode == ViewMode.ThreeD)
+        {
+            if (_previousPointer.IsInside)
+            {
+                double deltaX = pointer.X - _previousPointer.X;
+                double deltaY = pointer.Y - _previousPointer.Y;
+                if (pointer.Buttons.HasFlag(PointerButtons.Right)) _camera3D.Orbit(deltaX, deltaY);
+                if (pointer.Buttons.HasFlag(PointerButtons.Middle)) _camera3D.Pan(deltaX, deltaY);
+            }
+            if (frame.ScrollInput.Serial != 0 && frame.ScrollInput.Serial != _handledScrollSerial)
+            {
+                _handledScrollSerial = frame.ScrollInput.Serial;
+                _camera3D.Zoom(frame.ScrollInput.Delta);
+            }
+            return;
+        }
         bool panning = pointer.Buttons.HasFlag(PointerButtons.Middle) ||
             pointer.Buttons.HasFlag(PointerButtons.Right) ||
             (_activeTool == ToolKind.Pan && pointer.LeftPressed);
@@ -369,6 +395,12 @@ internal sealed class EutherWireApplication : IForgeApplication
                 _statusMessage = _viewMode == ViewMode.ThreeD ? "3D view · drawing plane: floor" : "Plan view";
                 return true;
             }
+        }
+        if (_viewMode == ViewMode.ThreeD && CameraRect().Contains(pointer.X, pointer.Y))
+        {
+            _camera3D.CycleView();
+            _statusMessage = $"Camera: {_camera3D.ViewLabel}";
+            return true;
         }
         if (_draftPoints.Count > 0 && FinishRect(inspectorX).Contains(pointer.X, pointer.Y))
         {
@@ -982,7 +1014,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             Draw3DRoute(canvas, draft, 0xffffcc66, 2);
         }
         Draw3DHandles(canvas);
-        canvas.DrawText(work.X + 14, work.Y + 14, $"3D GARAGE · {_activeSurface}", 0xffffcc66);
+        canvas.DrawText(work.X + 14, work.Y + 14, $"3D GARAGE · {_activeSurface} · CAMERA {_camera3D.ViewLabel}", 0xffffcc66);
     }
 
     private void DrawActiveSurface(SoftwareCanvas canvas, SpaceVolume space)
@@ -1217,6 +1249,10 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, active ? 0xffffcc66 : 0xff3c5261);
             canvas.DrawText(rect.X + 8, rect.Y + 13, index == 0 ? "PLAN" : "3D", active ? 0xffffcc66 : 0xff9eb0bb);
         }
+        canvas.DrawText(14, 470, "CAMERA", 0xff728996);
+        RectI cameraRect = CameraRect();
+        canvas.DrawRect(cameraRect.X, cameraRect.Y, cameraRect.Width, cameraRect.Height, _viewMode == ViewMode.ThreeD ? 0xffffcc66 : 0xff3c5261);
+        canvas.DrawText(cameraRect.X + 7, cameraRect.Y + 13, _camera3D.ViewLabel, _viewMode == ViewMode.ThreeD ? 0xffffcc66 : 0xff667680);
 
         int inspectorX = work.Right;
         canvas.FillRect(inspectorX, 0, canvas.Width - inspectorX, canvas.Height, 0xff101820);
@@ -1254,7 +1290,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         Point3 spatialPoint = ScreenToSpatial(pointer.X, pointer.Y);
         canvas.DrawText(ToolbarWidth + 12, work.Bottom + 10,
             _viewMode == ViewMode.ThreeD
-                ? $"3D {_activeSurface}   X {spatialPoint.X:0}   Y {spatialPoint.Y:0}   Z {spatialPoint.Z:0} mm   Place and route on selected surface"
+                ? $"3D {_activeSurface}   X {spatialPoint.X:0}   Y {spatialPoint.Y:0}   Z {spatialPoint.Z:0} mm   RMB orbit · MMB pan · wheel zoom"
                 : $"X {spatialPoint.X:0} mm   Y {spatialPoint.Y:0} mm   Zoom {_camera.PixelsPerMillimetre * 1000:0} px/m   MMB/RMB pan   Wheel zoom",
             0xff91a6b3);
     }
@@ -1550,6 +1586,7 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private static RectI ToolRect(int index) => new(10, 64 + index * 48, 52, 34);
     private static RectI ViewRect(int index) => new(10, 380 + index * 44, 52, 32);
+    private static RectI CameraRect() => new(10, 490, 52, 32);
 
     private const int ToolCount = 6;
 

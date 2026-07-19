@@ -31,6 +31,10 @@ The intended workflow is:
 - Device and route elevations have stable semantic property handles.
 - Contained cable geometry follows its conduit in all three dimensions.
 - The desktop can switch between PLAN and an isometric 3D garage view.
+- The 3D camera supports right-button orbit, middle-button pan, wheel zoom,
+  and ISO/NORTH/EAST/SOUTH/WEST presets through the UI or `F10`.
+- Surface unprojection follows the rotated camera, so editing remains active
+  after changing viewpoint.
 - The renderer shows distinct inner and outer wall shells and the ceiling slab.
 - The active mounting surface has a yellow 3D outline.
 - Existing devices and elevated routes render inside the garage shell.
@@ -71,9 +75,8 @@ All of these remain command-based and addressable without screen coordinates.
 
 ### Camera navigation
 
-- orbit around pointer or selected object;
-- pan and zoom in 3D;
-- front, rear, left, right, top, and selected-surface presets;
+- orbit around the pointer or selected object rather than only the room centre;
+- top and selected-surface presets;
 - section box for inspecting concealed routes;
 - saved named viewpoints for installation photos and documentation.
 
