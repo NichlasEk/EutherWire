@@ -70,6 +70,8 @@ public sealed class ProjectDocument
     }
 
     internal bool RemoveDevice(ObjectId id, out Device? device) => _devices.Remove(id, out device);
+    internal bool RemoveCable(ObjectId id, out CableRoute? cable) => _cables.Remove(id, out cable);
+    internal bool RemoveConduit(ObjectId id, out Conduit? conduit) => _conduits.Remove(id, out conduit);
 
     private void RequireUniqueId(ObjectId id)
     {

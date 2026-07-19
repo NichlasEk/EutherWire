@@ -54,6 +54,36 @@ public sealed class AddDeviceCommand(Device device) : IDocumentCommand
     }
 }
 
+public sealed class AddCableCommand(CableRoute cable) : IDocumentCommand
+{
+    public string Description => $"Add {cable.Id}";
+
+    public void Apply(ProjectDocument document) => document.Add(cable);
+
+    public void Undo(ProjectDocument document)
+    {
+        if (!document.RemoveCable(cable.Id, out _))
+        {
+            throw new InvalidOperationException($"Cable '{cable.Id}' cannot be removed because it no longer exists.");
+        }
+    }
+}
+
+public sealed class AddConduitCommand(Conduit conduit) : IDocumentCommand
+{
+    public string Description => $"Add {conduit.Id}";
+
+    public void Apply(ProjectDocument document) => document.Add(conduit);
+
+    public void Undo(ProjectDocument document)
+    {
+        if (!document.RemoveConduit(conduit.Id, out _))
+        {
+            throw new InvalidOperationException($"Conduit '{conduit.Id}' cannot be removed because it no longer exists.");
+        }
+    }
+}
+
 public sealed class MoveEditHandleCommand(EditHandleId handleId, Point2 destination) : IDocumentCommand
 {
     private Point2 _origin;

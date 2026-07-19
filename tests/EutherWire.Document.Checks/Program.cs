@@ -94,6 +94,17 @@ Require(!wired.Contains(placed.Id), "Undo must remove the placed device.");
 Require(connectedHistory.Redo(wired), "Placed devices must be redoable.");
 Require(wired.Contains(placed.Id), "Redo must restore the same stable object ID.");
 
+var additions = new ProjectDocument("Route commands");
+var addedConduit = new Conduit(ObjectId.Parse("added-pipe"), "RÖR-01", 25, new Polyline([new Point2(0, 0), new Point2(1000, 0)]));
+var addedCable = new CableRoute(ObjectId.Parse("added-cable"), "CAT6-01", CableKind.Cat6, new Polyline([new Point2(0, 0), new Point2(1000, 0)]));
+var additionHistory = new CommandHistory();
+additionHistory.Execute(additions, new AddConduitCommand(addedConduit));
+additionHistory.Execute(additions, new AddCableCommand(addedCable));
+Require(additions.Contains(addedConduit.Id) && additions.Contains(addedCable.Id), "Route commands must add conduits and cables.");
+Require(additionHistory.Undo(additions) && !additions.Contains(addedCable.Id), "Cable placement must be undoable.");
+Require(additionHistory.Undo(additions) && !additions.Contains(addedConduit.Id), "Conduit placement must be undoable.");
+Require(additionHistory.Redo(additions) && additionHistory.Redo(additions), "Route placement must be redoable.");
+
 string serialized = ProjectToml.Serialize(wired);
 ProjectDocument loaded = ProjectToml.Deserialize(serialized);
 string serializedAgain = ProjectToml.Serialize(loaded);

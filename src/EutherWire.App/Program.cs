@@ -39,6 +39,10 @@ internal sealed class EutherWireApplication : IForgeApplication
     private Point2 _dragOrigin;
     private string _statusMessage = "Ready";
     private bool _dirty;
+    private readonly List<Point2> _draftPoints = [];
+    private PortReference? _draftFrom;
+    private PortReference? _draftTo;
+    private Point2 _draftPointer;
 
     public EutherWireApplication(ProjectDocument document, string? projectDirectory)
     {
@@ -56,6 +60,10 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             HandleEditing(frame, work);
         }
+        if (work.Contains(frame.Pointer.X, frame.Pointer.Y))
+        {
+            _draftPointer = SnapRoutePoint(_camera.ScreenToDocument(frame.Pointer.X, frame.Pointer.Y));
+        }
         HandleNavigation(frame);
         SoftwareCanvas canvas = frame.Canvas;
         canvas.Clear(0xff111820);
@@ -65,6 +73,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.FillRect(work.X, work.Y, work.Width, work.Height, 0xff17212a);
             DrawGrid(canvas, work);
             DrawDocument(canvas);
+            DrawDraft(canvas);
             DrawHandles(canvas);
         }
 
@@ -108,6 +117,11 @@ internal sealed class EutherWireApplication : IForgeApplication
                 PlaceDevice(_camera.ScreenToDocument(pointer.X, pointer.Y));
                 return;
             }
+            if (_activeTool is ToolKind.Wire or ToolKind.Conduit)
+            {
+                AddDraftPoint(pointer.X, pointer.Y);
+                return;
+            }
             if (_activeTool != ToolKind.Select)
             {
                 return;
@@ -144,6 +158,78 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
+    private void AddDraftPoint(int screenX, int screenY)
+    {
+        Point2 point = SnapRoutePoint(_camera.ScreenToDocument(screenX, screenY));
+        PortReference? port = _activeTool == ToolKind.Wire ? HitPort(screenX, screenY) : null;
+        if (port is PortReference portReference)
+        {
+            point = PortPosition(portReference);
+            if (_draftPoints.Count == 0)
+            {
+                _draftFrom = portReference;
+            }
+            else
+            {
+                _draftTo = portReference;
+            }
+        }
+        else if (_activeTool == ToolKind.Wire && _draftPoints.Count > 0)
+        {
+            _draftTo = null;
+        }
+        if (_draftPoints.Count == 0 || _draftPoints[^1] != point)
+        {
+            _draftPoints.Add(point);
+            _statusMessage = $"{ToolLabel(_activeTool)} point {_draftPoints.Count}: {point.X:0}, {point.Y:0} mm";
+        }
+    }
+
+    private Point2 SnapRoutePoint(Point2 point)
+    {
+        Point2 snapped = new(Math.Round(point.X / 100) * 100, Math.Round(point.Y / 100) * 100);
+        if (_draftPoints.Count == 0)
+        {
+            return snapped;
+        }
+        Point2 origin = _draftPoints[^1];
+        double dx = snapped.X - origin.X;
+        double dy = snapped.Y - origin.Y;
+        if (dx == 0 && dy == 0)
+        {
+            return snapped;
+        }
+        double angle = Math.Atan2(dy, dx);
+        double snappedAngle = Math.Round(angle / (Math.PI / 4)) * (Math.PI / 4);
+        double length = Math.Sqrt(dx * dx + dy * dy);
+        return new Point2(
+            Math.Round((origin.X + Math.Cos(snappedAngle) * length) / 100) * 100,
+            Math.Round((origin.Y + Math.Sin(snappedAngle) * length) / 100) * 100);
+    }
+
+    private PortReference? HitPort(int screenX, int screenY)
+    {
+        foreach (EditHandle handle in DocumentHandles.Enumerate(_document))
+        {
+            if (handle.Id.Kind != EditHandleKind.Port || handle.Id.Name is null)
+            {
+                continue;
+            }
+            (double x, double y) = _camera.DocumentToScreen(handle.Position);
+            if (Math.Abs(screenX - x) <= 10 && Math.Abs(screenY - y) <= 10)
+            {
+                return new PortReference(handle.Id.ObjectId, handle.Id.Name);
+            }
+        }
+        return null;
+    }
+
+    private Point2 PortPosition(PortReference reference)
+    {
+        var handleId = new EditHandleId(reference.DeviceId, EditHandleKind.Port, Name: reference.PortId);
+        return DocumentHandleEditor.RequirePosition(_document, handleId);
+    }
+
     private void PlaceDevice(Point2 position)
     {
         Point2 snapped = new(Math.Round(position.X / 100) * 100, Math.Round(position.Y / 100) * 100);
@@ -174,11 +260,26 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             if (ToolRect(index).Contains(pointer.X, pointer.Y))
             {
-                _activeTool = (ToolKind)index;
+                ToolKind nextTool = (ToolKind)index;
+                if (nextTool != _activeTool)
+                {
+                    CancelDraft("Draft cancelled");
+                }
+                _activeTool = nextTool;
                 _activeHandle = null;
                 _statusMessage = $"Tool: {ToolLabel(_activeTool)}";
                 return true;
             }
+        }
+        if (_draftPoints.Count > 0 && FinishRect(inspectorX).Contains(pointer.X, pointer.Y))
+        {
+            FinishDraft();
+            return true;
+        }
+        if (_draftPoints.Count > 0 && CancelRect(inspectorX).Contains(pointer.X, pointer.Y))
+        {
+            CancelDraft("Draft cancelled");
+            return true;
         }
         if (ButtonRect(inspectorX, 0).Contains(pointer.X, pointer.Y))
         {
@@ -206,6 +307,68 @@ internal sealed class EutherWireApplication : IForgeApplication
             return true;
         }
         return false;
+    }
+
+    private void FinishDraft()
+    {
+        if (_draftPoints.Count < 2)
+        {
+            _statusMessage = "A route needs at least two distinct points";
+            return;
+        }
+
+        var route = new Polyline(_draftPoints);
+        if (_activeTool == ToolKind.Conduit)
+        {
+            ObjectId id = ObjectId.Parse($"conduit-{Guid.NewGuid():N}");
+            int number = _document.Conduits.Count + 1;
+            _history.Execute(_document, new AddConduitCommand(new Conduit(
+                id,
+                $"RÖR-{number:00}",
+                25,
+                route,
+                InstallationMethod.Concealed)));
+            _selectedObjectId = id;
+        }
+        else if (_activeTool == ToolKind.Wire)
+        {
+            ObjectId id = ObjectId.Parse($"cable-{Guid.NewGuid():N}");
+            int number = _document.Cables.Count + 1;
+            _history.Execute(_document, new AddCableCommand(new CableRoute(
+                id,
+                $"CAT6-{number:00}",
+                CableKind.Cat6,
+                route,
+                _draftFrom,
+                _draftTo)));
+            _selectedObjectId = id;
+        }
+        else
+        {
+            return;
+        }
+
+        _dirty = true;
+        _statusMessage = $"Created {_selectedObjectId} with {_draftPoints.Count} points";
+        ClearDraft();
+        _activeTool = ToolKind.Select;
+    }
+
+    private void CancelDraft(string message)
+    {
+        if (_draftPoints.Count == 0)
+        {
+            return;
+        }
+        ClearDraft();
+        _statusMessage = message;
+    }
+
+    private void ClearDraft()
+    {
+        _draftPoints.Clear();
+        _draftFrom = null;
+        _draftTo = null;
     }
 
     private void EnsureSelectionExists()
@@ -374,6 +537,23 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
+    private void DrawDraft(SoftwareCanvas canvas)
+    {
+        if (_draftPoints.Count == 0)
+        {
+            return;
+        }
+        uint color = _activeTool == ToolKind.Wire ? 0xff55c8ff : 0xff9baab3;
+        DrawRoute(canvas, _draftPoints, color, 3);
+        Point2 last = _draftPoints[^1];
+        DrawRoute(canvas, [last, _draftPointer], 0xffffcc66, 1);
+        foreach (Point2 point in _draftPoints)
+        {
+            (double x, double y) = _camera.DocumentToScreen(point);
+            canvas.DrawRect((int)x - 4, (int)y - 4, 9, 9, color);
+        }
+    }
+
     private void DrawHandles(SoftwareCanvas canvas)
     {
         foreach (EditHandle handle in DocumentHandles.Enumerate(_document))
@@ -453,6 +633,12 @@ internal sealed class EutherWireApplication : IForgeApplication
         DrawChromeButton(canvas, ButtonRect(inspectorX, 2), "REDO", _history.RedoCount > 0);
         canvas.DrawText(inspectorX + 18, 202, _dirty ? "MODIFIED" : "SAVED", _dirty ? 0xffffcc66 : 0xff61e294);
         canvas.DrawText(inspectorX + 18, 226, _statusMessage, 0xff9eb0bb);
+        if (_draftPoints.Count > 0)
+        {
+            DrawChromeButton(canvas, FinishRect(inspectorX), "FINISH", _draftPoints.Count >= 2);
+            DrawChromeButton(canvas, CancelRect(inspectorX), "CANCEL", true);
+            canvas.DrawText(inspectorX + 18, 304, $"Draft points: {_draftPoints.Count}", 0xffffcc66);
+        }
 
         canvas.FillRect(ToolbarWidth, work.Bottom, work.Width, StatusHeight, 0xff0b1117);
         Point2 documentPoint = _camera.ScreenToDocument(pointer.X, pointer.Y);
@@ -490,6 +676,9 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private static RectI ButtonRect(int inspectorX, int index) =>
         new(inspectorX + 18 + index * 78, 146, 68, 32);
+
+    private static RectI FinishRect(int inspectorX) => new(inspectorX + 18, 260, 104, 32);
+    private static RectI CancelRect(int inspectorX) => new(inspectorX + 134, 260, 104, 32);
 
     private static void DrawChromeButton(SoftwareCanvas canvas, RectI rect, string label, bool enabled)
     {

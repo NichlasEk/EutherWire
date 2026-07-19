@@ -77,7 +77,7 @@ public static class DocumentHandles
             {
                 Port port = device.Ports[index];
                 handles.Add(new EditHandle(
-                    new EditHandleId(device.Id, EditHandleKind.Port, index, port.Id),
+                    new EditHandleId(device.Id, EditHandleKind.Port, Name: port.Id),
                     device.Position + Rotate(port.Position, device.RotationDegrees)));
             }
         }
