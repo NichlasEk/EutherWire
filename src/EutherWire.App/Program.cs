@@ -311,6 +311,20 @@ internal sealed class EutherWireApplication : IForgeApplication
                 }
             }
         }
+        ProjectAnalysis analysis = ProjectAnalyzer.Analyze(_document);
+        for (int index = 0; index < Math.Min(3, analysis.Diagnostics.Count); index++)
+        {
+            ProjectDiagnostic diagnostic = analysis.Diagnostics[index];
+            if (diagnostic.ObjectId is ObjectId objectId && DiagnosticRect(inspectorX, index).Contains(pointer.X, pointer.Y))
+            {
+                _selectedObjectId = objectId;
+                _activeTool = ToolKind.Select;
+                _activeHandle = null;
+                SyncSelectedLabelEditor();
+                _statusMessage = diagnostic.Message;
+                return true;
+            }
+        }
         if (_draftPoints.Count == 0 && _selectedObjectId is ObjectId selected)
         {
             if (DeleteRect(inspectorX).Contains(pointer.X, pointer.Y))
@@ -326,6 +340,16 @@ internal sealed class EutherWireApplication : IForgeApplication
             if (_document.Cables.TryGetValue(selected, out cable) && PropertyPlusRect(inspectorX).Contains(pointer.X, pointer.Y))
             {
                 CycleCableKind(cable, 1);
+                return true;
+            }
+            if (_document.Cables.TryGetValue(selected, out cable) && StatusMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                CycleInstallationStatus(cable, -1);
+                return true;
+            }
+            if (_document.Cables.TryGetValue(selected, out cable) && StatusPlusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                CycleInstallationStatus(cable, 1);
                 return true;
             }
             if (_document.Conduits.TryGetValue(selected, out Conduit? conduit) && PropertyMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
@@ -401,6 +425,15 @@ internal sealed class EutherWireApplication : IForgeApplication
         _history.Execute(_document, new SetCableKindCommand(cable.Id, kinds[index]));
         _dirty = true;
         _statusMessage = $"Cable type: {kinds[index]}";
+    }
+
+    private void CycleInstallationStatus(CableRoute cable, int direction)
+    {
+        InstallationStatus[] statuses = Enum.GetValues<InstallationStatus>();
+        int index = (Array.IndexOf(statuses, cable.InstallationStatus) + direction + statuses.Length) % statuses.Length;
+        _history.Execute(_document, new SetCableInstallationCommand(cable.Id, statuses[index], cable.ActualLengthMillimetres));
+        _dirty = true;
+        _statusMessage = $"Installation: {statuses[index]}";
     }
 
     private void SetConduitDiameter(Conduit conduit, int direction)
@@ -554,6 +587,12 @@ internal sealed class EutherWireApplication : IForgeApplication
         if (label is not null)
         {
             _ui.SetText(new UiId($"inspector.label.{selected}"), label);
+        }
+        if (_document.Cables.TryGetValue(selected, out CableRoute? selectedCable))
+        {
+            _ui.SetText(
+                new UiId($"inspector.actual.{selected}"),
+                selectedCable.ActualLengthMillimetres?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
         }
     }
 
@@ -943,6 +982,33 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.DrawText(inspectorX + 18, 356, $"TYPE  {cable.Kind}", 0xff9eb0bb);
             DrawChromeButton(canvas, PropertyMinusRect(inspectorX), "<", true);
             DrawChromeButton(canvas, PropertyPlusRect(inspectorX), ">", true);
+            canvas.DrawText(inspectorX + 18, 458, $"STATUS  {cable.InstallationStatus}", 0xff9eb0bb);
+            DrawChromeButton(canvas, StatusMinusRect(inspectorX), "<", true);
+            DrawChromeButton(canvas, StatusPlusRect(inspectorX), ">", true);
+            canvas.DrawText(inspectorX + 134, 458, "ACTUAL MM", 0xff9eb0bb);
+            string actualText = cable.ActualLengthMillimetres?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+            UiTextBoxResult actual = _ui.TextBox(
+                new UiId($"inspector.actual.{selected}"),
+                ActualLengthRect(inspectorX),
+                actualText,
+                "unknown",
+                new UiTextBoxOptions(MaxLength: 12));
+            if (actual.Submitted && string.IsNullOrWhiteSpace(actual.Text) && cable.ActualLengthMillimetres is not null)
+            {
+                _history.Execute(_document, new SetCableInstallationCommand(cable.Id, cable.InstallationStatus, null));
+                _dirty = true;
+                _statusMessage = "Actual cable length cleared";
+            }
+            else if (actual.Submitted && TryParseNonNegative(actual.Text, out double actualLength) && actualLength != cable.ActualLengthMillimetres)
+            {
+                _history.Execute(_document, new SetCableInstallationCommand(cable.Id, cable.InstallationStatus, actualLength));
+                _dirty = true;
+                _statusMessage = $"Actual cable length: {actualLength:0.###} mm";
+            }
+            else if (actual.Submitted && !string.IsNullOrWhiteSpace(actual.Text) && !TryParseNonNegative(actual.Text, out _))
+            {
+                _statusMessage = "Actual length must be a non-negative number in millimetres";
+            }
         }
         else if (conduit is not null)
         {
@@ -960,34 +1026,40 @@ internal sealed class EutherWireApplication : IForgeApplication
     private void DrawProjectAnalysis(SoftwareCanvas canvas, int inspectorX)
     {
         ProjectAnalysis analysis = ProjectAnalyzer.Analyze(_document);
-        canvas.DrawText(inspectorX + 18, 486, "PROJECT ANALYSIS", 0xff9eb0bb);
-        canvas.DrawText(inspectorX + 18, 510, $"Cable {analysis.TotalCableLengthMillimetres / 1000:0.00} m", 0xffc7d4dc);
-        canvas.DrawText(inspectorX + 18, 532, $"Order {analysis.RecommendedCableLengthMillimetres / 1000:0.00} m", 0xffc7d4dc);
-        canvas.DrawText(inspectorX + 18, 554, $"Conduit {analysis.TotalConduitLengthMillimetres / 1000:0.00} m", 0xffc7d4dc);
+        canvas.DrawText(inspectorX + 18, 558, "PROJECT ANALYSIS", 0xff9eb0bb);
+        canvas.DrawText(inspectorX + 18, 582, $"Cable {analysis.TotalCableLengthMillimetres / 1000:0.00} m", 0xffc7d4dc);
+        canvas.DrawText(inspectorX + 18, 604, $"Order {analysis.RecommendedCableLengthMillimetres / 1000:0.00} m", 0xffc7d4dc);
+        canvas.DrawText(inspectorX + 18, 626, $"Conduit {analysis.TotalConduitLengthMillimetres / 1000:0.00} m", 0xffc7d4dc);
         uint diagnosticColor = analysis.ErrorCount > 0
             ? 0xffff6b6b
             : analysis.WarningCount > 0
                 ? 0xffffcc66
                 : 0xff61e294;
-        canvas.DrawText(inspectorX + 18, 580, $"Errors {analysis.ErrorCount}   Warnings {analysis.WarningCount}", diagnosticColor);
+        canvas.DrawText(inspectorX + 18, 650, $"Errors {analysis.ErrorCount}   Warnings {analysis.WarningCount}", diagnosticColor);
 
         if (_selectedObjectId is ObjectId selected && _document.Conduits.ContainsKey(selected))
         {
             ConduitFill? fill = analysis.ConduitFills.FirstOrDefault(item => item.ConduitId == selected);
             if (fill is not null)
             {
-                canvas.DrawText(inspectorX + 18, 606, $"Selected fill {fill.FillRatio:P1}", fill.FillRatio > 0.40 ? 0xffffcc66 : 0xff9eb0bb);
+                canvas.DrawText(inspectorX + 18, 674, $"Selected fill {fill.FillRatio:P1}", fill.FillRatio > 0.40 ? 0xffffcc66 : 0xff9eb0bb);
             }
         }
 
-        int y = 632;
-        foreach (ProjectDiagnostic diagnostic in analysis.Diagnostics.Take(3))
+        for (int index = 0; index < Math.Min(3, analysis.Diagnostics.Count); index++)
         {
+            ProjectDiagnostic diagnostic = analysis.Diagnostics[index];
             uint color = diagnostic.Severity == DiagnosticSeverity.Error ? 0xffff6b6b : 0xffffcc66;
-            canvas.DrawText(inspectorX + 18, y, diagnostic.Code, color);
-            y += 22;
+            RectI rect = DiagnosticRect(inspectorX, index);
+            canvas.FillRect(rect.X, rect.Y, rect.Width, rect.Height, 0xff15212a);
+            canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, color);
+            canvas.DrawText(rect.X + 6, rect.Y + 8, diagnostic.Code, color);
         }
     }
+
+    private static bool TryParseNonNegative(string text, out double value) =>
+        double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) &&
+        double.IsFinite(value) && value >= 0;
 
     private static RectI ButtonRect(int inspectorX, int index) =>
         new(inspectorX + 18 + index * 78, 146, 68, 32);
@@ -999,6 +1071,10 @@ internal sealed class EutherWireApplication : IForgeApplication
     private static RectI PropertyPlusRect(int inspectorX) => new(inspectorX + 76, 374, 48, 30);
     private static RectI AddVertexRect(int inspectorX) => new(inspectorX + 18, 418, 104, 30);
     private static RectI DeleteVertexRect(int inspectorX) => new(inspectorX + 134, 418, 104, 30);
+    private static RectI StatusMinusRect(int inspectorX) => new(inspectorX + 18, 476, 48, 30);
+    private static RectI StatusPlusRect(int inspectorX) => new(inspectorX + 76, 476, 48, 30);
+    private static RectI ActualLengthRect(int inspectorX) => new(inspectorX + 134, 476, 104, 30);
+    private static RectI DiagnosticRect(int inspectorX, int index) => new(inspectorX + 18, 700 + index * 30, 220, 24);
     private static RectI SymbolRect(int inspectorX, int index) =>
         new(inspectorX + 18 + index % 2 * 112, 282 + index / 2 * 42, 102, 32);
 
