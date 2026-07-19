@@ -28,6 +28,15 @@ public sealed record ConduitFill(
     int KnownCableCount,
     int UnknownCableCount);
 
+public sealed record InstallationTask(
+    ObjectId CableId,
+    string Label,
+    InstallationStatus Status,
+    string From,
+    string To,
+    double PlannedLengthMillimetres,
+    double? ActualLengthMillimetres);
+
 public sealed record ProjectAnalysis(
     double TotalCableLengthMillimetres,
     double RecommendedCableLengthMillimetres,
@@ -35,10 +44,12 @@ public sealed record ProjectAnalysis(
     double TotalConduitLengthMillimetres,
     IReadOnlyList<MaterialItem> Materials,
     IReadOnlyList<ConduitFill> ConduitFills,
+    IReadOnlyList<InstallationTask> InstallationTasks,
     IReadOnlyList<ProjectDiagnostic> Diagnostics)
 {
     public int ErrorCount => Diagnostics.Count(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
     public int WarningCount => Diagnostics.Count(diagnostic => diagnostic.Severity == DiagnosticSeverity.Warning);
+    public int CompletedInstallationCount => InstallationTasks.Count(task => task.Status is InstallationStatus.Installed or InstallationStatus.Tested);
 }
 
 public static class ProjectAnalyzer
@@ -105,6 +116,7 @@ public static class ProjectAnalyzer
             conduitLength,
             BuildMaterials(document),
             fills,
+            BuildInstallationTasks(document),
             diagnostics);
     }
 
@@ -153,6 +165,22 @@ public static class ProjectAnalyzer
                 DiagnosticSeverity.Warning,
                 cable.Id,
                 $"Cable '{cable.Label}' feeds a PoE port but does not start at a PoE-capable port."));
+        }
+        if (cable.InstallationStatus is InstallationStatus.Installed or InstallationStatus.Tested && cable.ActualLengthMillimetres is null)
+        {
+            diagnostics.Add(new ProjectDiagnostic(
+                "installation.length.missing",
+                DiagnosticSeverity.Warning,
+                cable.Id,
+                $"Cable '{cable.Label}' is {cable.InstallationStatus.ToString().ToLowerInvariant()} but has no measured installed length."));
+        }
+        if (cable.InstallationStatus == InstallationStatus.Blocked)
+        {
+            diagnostics.Add(new ProjectDiagnostic(
+                "installation.blocked",
+                DiagnosticSeverity.Info,
+                cable.Id,
+                $"Cable '{cable.Label}' is blocked and needs field follow-up."));
         }
 
         if (cable.ConduitId is not ObjectId conduitId)
@@ -285,6 +313,27 @@ public static class ProjectAnalyzer
                 group.Sum(conduit => conduit.Route.LengthMillimetres) / 1000,
                 "m")));
         return materials;
+    }
+
+    private static IReadOnlyList<InstallationTask> BuildInstallationTasks(ProjectDocument document) =>
+        document.Cables.Values
+            .OrderBy(cable => cable.Id.Value, StringComparer.Ordinal)
+            .Select(cable => new InstallationTask(
+                cable.Id,
+                cable.Label,
+                cable.InstallationStatus,
+                Endpoint(document, cable.From),
+                Endpoint(document, cable.To),
+                RecommendedLength(document, cable),
+                cable.ActualLengthMillimetres))
+            .ToList();
+
+    private static string Endpoint(ProjectDocument document, PortReference? reference)
+    {
+        if (reference is not PortReference endpoint) return "loose";
+        return document.Devices.TryGetValue(endpoint.DeviceId, out Device? device)
+            ? $"{device.Label}:{endpoint.PortId}"
+            : $"{endpoint.DeviceId}:{endpoint.PortId}";
     }
 
     private static double RecommendedLength(ProjectDocument document, CableRoute cable) =>

@@ -28,6 +28,7 @@ Usage:
   ./eutherwire.sh check           Build, run document checks, and analyze Garage Draft
   ./eutherwire.sh report [PROJECT]
   ./eutherwire.sh properties [PROJECT]
+  ./eutherwire.sh tasks [PROJECT]
   ./eutherwire.sh export [PROJECT] [OUTPUT.svg]
   ./eutherwire.sh png [PROJECT] [OUTPUT.png]
   ./eutherwire.sh help
@@ -123,6 +124,12 @@ case "$EW_COMMAND" in
         build
         require_project "$EW_PROJECT"
         "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- properties "$EW_PROJECT"
+        ;;
+    tasks)
+        EW_PROJECT="${2:-$EW_EXAMPLE_PROJECT}"
+        build
+        require_project "$EW_PROJECT"
+        "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- tasks "$EW_PROJECT"
         ;;
     export)
         EW_PROJECT="${2:-$EW_EXAMPLE_PROJECT}"

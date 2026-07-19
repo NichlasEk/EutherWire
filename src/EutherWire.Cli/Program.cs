@@ -40,6 +40,8 @@ static int Run(string[] arguments)
             return 0;
         case "report" when arguments.Length == 2:
             return PrintReport(ProjectToml.Load(projectDirectory));
+        case "tasks" when arguments.Length == 2:
+            return PrintTasks(ProjectToml.Load(projectDirectory));
         case "normalize" when arguments.Length == 2:
             ProjectDocument normalized = ProjectToml.Load(projectDirectory);
             ProjectToml.Save(projectDirectory, normalized);
@@ -200,12 +202,27 @@ static int PrintReport(ProjectDocument document)
     return analysis.ErrorCount > 0 ? 3 : 0;
 }
 
+static int PrintTasks(ProjectDocument document)
+{
+    ProjectAnalysis analysis = ProjectAnalyzer.Analyze(document);
+    Console.WriteLine($"Installation tasks: completed={analysis.CompletedInstallationCount} total={analysis.InstallationTasks.Count}");
+    foreach (InstallationTask task in analysis.InstallationTasks)
+    {
+        string actual = task.ActualLengthMillimetres is double length
+            ? length.ToString("0.###", CultureInfo.InvariantCulture)
+            : "unknown";
+        Console.WriteLine($"{task.CableId}\t{task.Status.ToString().ToLowerInvariant()}\t{task.Label}\t{task.From}\t{task.To}\tplanned_mm={task.PlannedLengthMillimetres.ToString("0.###", CultureInfo.InvariantCulture)}\tactual_mm={actual}");
+    }
+    return analysis.ErrorCount > 0 ? 3 : 0;
+}
+
 static void Usage()
 {
     Console.Error.WriteLine("Usage:");
     Console.Error.WriteLine("  eutherwire create-demo <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire validate <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire report <project.eutherwire>");
+    Console.Error.WriteLine("  eutherwire tasks <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire normalize <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire handles <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire properties <project.eutherwire>");

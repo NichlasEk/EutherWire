@@ -193,6 +193,9 @@ ConduitFill garageFill = garageAnalysis.ConduitFills.Single();
 Require(Math.Abs(garageFill.FillRatio - (6.2 * 6.2 / (25 * 25))) < 0.000001, "Conduit fill must use the planning diameter catalogue.");
 Require(garageAnalysis.ErrorCount == 0 && garageAnalysis.WarningCount == 0, "The garage template must be semantically sound.");
 Require(garageAnalysis.Materials.Any(item => item.Category == "cable" && item.Key == nameof(CableKind.Cat6) && Math.Abs(item.Quantity - 9.14) < 0.001), "Material list must aggregate recommended cable metres.");
+InstallationTask garageTask = garageAnalysis.InstallationTasks.Single();
+Require(garageTask.From == "POE-SW:port-1" && garageTask.To == "KAM-N:eth0", "Installation tasks must resolve readable endpoint labels.");
+Require(garageTask.PlannedLengthMillimetres == 9140 && garageTask.ActualLengthMillimetres is null, "Installation tasks need planned and measured lengths.");
 
 PropertyHandleId statusPropertyId = PropertyHandleId.Parse("camera-north-cat6:property:installation_status");
 IReadOnlyList<DocumentProperty> garageProperties = DocumentProperties.Enumerate(garageDocument);
@@ -203,6 +206,12 @@ propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(gara
 Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).InstallationStatus == InstallationStatus.Tested, "Property handles must create real document commands.");
 Require(propertyHistory.Undo(garageDocument), "Property-handle edits must be undoable.");
 Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).InstallationStatus == InstallationStatus.Planned, "Property undo must restore the previous value.");
+var missingMeasurementHistory = new CommandHistory();
+missingMeasurementHistory.Execute(garageDocument, new SetCableInstallationCommand(ObjectId.Parse("camera-north-cat6"), InstallationStatus.Installed, null));
+ProjectAnalysis missingMeasurement = ProjectAnalyzer.Analyze(garageDocument);
+Require(missingMeasurement.CompletedInstallationCount == 1, "Installed and tested cables must count as completed field tasks.");
+Require(missingMeasurement.Diagnostics.Any(item => item.Code == "installation.length.missing"), "Completed cable tasks without measurements need a warning.");
+Require(missingMeasurementHistory.Undo(garageDocument), "Installation task state must remain undoable.");
 
 string garageSvg = SvgProjectExporter.Export(garageDocument);
 Require(SvgProjectExporter.Export(garageDocument) == garageSvg, "SVG export must be deterministic.");

@@ -222,6 +222,11 @@ Installation mode prioritises:
   the underlying plan geometry;
 - optional laser/rangefinder and camera-assisted measurements later.
 
+The shared analysis layer now emits installation tasks with stable cable IDs,
+human-readable endpoints, planned order length, measured installed length, and
+field status. Desktop and `eutherwire tasks` consume this list; the mobile UI
+can use it without inventing a separate task model.
+
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets
 a platform-specific shell around the same core instead of forcing a Wayland

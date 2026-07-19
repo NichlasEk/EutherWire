@@ -1071,6 +1071,10 @@ internal sealed class EutherWireApplication : IForgeApplication
                 canvas.DrawText(inspectorX + 18, 674, $"Selected fill {fill.FillRatio:P1}", fill.FillRatio > 0.40 ? 0xffffcc66 : 0xff9eb0bb);
             }
         }
+        else
+        {
+            canvas.DrawText(inspectorX + 18, 674, $"Installed {analysis.CompletedInstallationCount}/{analysis.InstallationTasks.Count}", 0xff9eb0bb);
+        }
 
         for (int index = 0; index < Math.Min(3, analysis.Diagnostics.Count); index++)
         {

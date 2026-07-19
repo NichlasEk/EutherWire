@@ -36,6 +36,7 @@ modified. Other useful modes are:
 ./eutherwire.sh check
 ./eutherwire.sh report
 ./eutherwire.sh properties
+./eutherwire.sh tasks
 ./eutherwire.sh export
 ./eutherwire.sh png
 ./eutherwire.sh run path/to/project.eutherwire
@@ -65,6 +66,7 @@ dotnet run --project src/EutherWire.Cli -- move examples/garage.eutherwire camer
 dotnet run --project src/EutherWire.Cli -- set-property examples/garage.eutherwire camera-north-cat6:property:installation_status tested
 dotnet run --project src/EutherWire.Cli -- validate examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- report examples/garage.eutherwire
+dotnet run --project src/EutherWire.Cli -- tasks examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- insert-vertex examples/garage.eutherwire camera-north-pipe 1 6500 -1000
 dotnet run --project src/EutherWire.Cli -- delete-vertex examples/garage.eutherwire camera-north-pipe 1
 dotnet run --project src/EutherWire.Cli -- configure examples/garage.eutherwire 10 1000
