@@ -22,6 +22,24 @@ For an existing clone:
 git submodule update --init --recursive
 ```
 
+The easiest safe test is:
+
+```sh
+./eutherwire.sh
+```
+
+This initializes WaylandForge if needed, builds the solution, and opens a
+writable Garage Draft under `.eutherwire-work/`. The tracked example is never
+modified. Other useful modes are:
+
+```sh
+./eutherwire.sh check
+./eutherwire.sh report
+./eutherwire.sh properties
+./eutherwire.sh export
+./eutherwire.sh run path/to/project.eutherwire
+```
+
 Build and run the current native prototype inside a Wayland session:
 
 ```sh

@@ -12,3 +12,5 @@ Directory.Build.local.props
 *.eutherwire/autosave/
 *.eutherwire/exports/
 
+# Safe writable projects and exports created by eutherwire.sh
+.eutherwire-work/
