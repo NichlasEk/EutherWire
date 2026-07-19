@@ -1,4 +1,5 @@
 using System.Globalization;
+using EutherWire.Document.Analysis;
 using EutherWire.Document.Commands;
 using EutherWire.Document.Editing;
 using EutherWire.Document.Geometry;
@@ -35,6 +36,8 @@ static int Run(string[] arguments)
         case "validate" when arguments.Length == 2:
             PrintSummary(ProjectToml.Load(projectDirectory));
             return 0;
+        case "report" when arguments.Length == 2:
+            return PrintReport(ProjectToml.Load(projectDirectory));
         case "normalize" when arguments.Length == 2:
             ProjectDocument normalized = ProjectToml.Load(projectDirectory);
             ProjectToml.Save(projectDirectory, normalized);
@@ -107,11 +110,36 @@ static void PrintSummary(ProjectDocument document)
     Console.WriteLine($"devices={document.Devices.Count} conduits={document.Conduits.Count} cables={document.Cables.Count} annotations={document.Annotations.Count} handles={DocumentHandles.Enumerate(document).Count}");
 }
 
+static int PrintReport(ProjectDocument document)
+{
+    ProjectAnalysis analysis = ProjectAnalyzer.Analyze(document);
+    PrintSummary(document);
+    Console.WriteLine($"cable_length_m={analysis.TotalCableLengthMillimetres / 1000:0.###} recommended_m={analysis.RecommendedCableLengthMillimetres / 1000:0.###} conduit_length_m={analysis.TotalConduitLengthMillimetres / 1000:0.###}");
+    Console.WriteLine("Materials:");
+    foreach (MaterialItem item in analysis.Materials)
+    {
+        Console.WriteLine($"  {item.Category}\t{item.Description}\t{item.Quantity.ToString("0.###", CultureInfo.InvariantCulture)} {item.Unit}");
+    }
+    Console.WriteLine("Conduit fill (planning estimate):");
+    foreach (ConduitFill fill in analysis.ConduitFills)
+    {
+        Console.WriteLine($"  {fill.ConduitId}\t{fill.FillRatio.ToString("P1", CultureInfo.InvariantCulture)}\tknown={fill.KnownCableCount} unknown={fill.UnknownCableCount}");
+    }
+    Console.WriteLine($"Diagnostics: errors={analysis.ErrorCount} warnings={analysis.WarningCount}");
+    foreach (ProjectDiagnostic diagnostic in analysis.Diagnostics)
+    {
+        string objectText = diagnostic.ObjectId is ObjectId id ? $" [{id}]" : string.Empty;
+        Console.WriteLine($"  {diagnostic.Severity.ToString().ToUpperInvariant()} {diagnostic.Code}{objectText}: {diagnostic.Message}");
+    }
+    return analysis.ErrorCount > 0 ? 3 : 0;
+}
+
 static void Usage()
 {
     Console.Error.WriteLine("Usage:");
     Console.Error.WriteLine("  eutherwire create-demo <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire validate <project.eutherwire>");
+    Console.Error.WriteLine("  eutherwire report <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire normalize <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire handles <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire move <project.eutherwire> <handle-id> <x-mm> <y-mm>");

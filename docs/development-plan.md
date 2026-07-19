@@ -179,6 +179,12 @@ The initial rule engine reports, but does not silently repair:
 - overfilled conduits;
 - PoE devices connected to non-PoE sources.
 
+The first analysis slice is implemented in the shared document library and is
+available both in the desktop inspector and through `eutherwire report`.
+Conduit fill currently uses an explicit approximate outside-diameter catalogue
+for planning; product-specific cable data and configurable margins remain to be
+added before the result can be treated as an installation calculation.
+
 ## Later milestones
 
 - imported PNG floorplans, measurement, and scale calibration;

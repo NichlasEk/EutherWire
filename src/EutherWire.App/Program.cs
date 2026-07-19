@@ -1,4 +1,5 @@
 using EutherWire.App;
+using EutherWire.Document.Analysis;
 using EutherWire.Document.Commands;
 using EutherWire.Document.Editing;
 using EutherWire.Document.Geometry;
@@ -850,6 +851,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             DrawPropertyControls(canvas, inspectorX, selected);
         }
+        DrawProjectAnalysis(canvas, inspectorX);
 
         canvas.FillRect(ToolbarWidth, work.Bottom, work.Width, StatusHeight, 0xff0b1117);
         Point2 documentPoint = _camera.ScreenToDocument(pointer.X, pointer.Y);
@@ -950,6 +952,38 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             DrawChromeButton(canvas, AddVertexRect(inspectorX), "+ POINT", true);
             DrawChromeButton(canvas, DeleteVertexRect(inspectorX), "- POINT", route!.Points.Count > 2);
+        }
+    }
+
+    private void DrawProjectAnalysis(SoftwareCanvas canvas, int inspectorX)
+    {
+        ProjectAnalysis analysis = ProjectAnalyzer.Analyze(_document);
+        canvas.DrawText(inspectorX + 18, 486, "PROJECT ANALYSIS", 0xff9eb0bb);
+        canvas.DrawText(inspectorX + 18, 510, $"Cable {analysis.TotalCableLengthMillimetres / 1000:0.00} m", 0xffc7d4dc);
+        canvas.DrawText(inspectorX + 18, 532, $"Order {analysis.RecommendedCableLengthMillimetres / 1000:0.00} m", 0xffc7d4dc);
+        canvas.DrawText(inspectorX + 18, 554, $"Conduit {analysis.TotalConduitLengthMillimetres / 1000:0.00} m", 0xffc7d4dc);
+        uint diagnosticColor = analysis.ErrorCount > 0
+            ? 0xffff6b6b
+            : analysis.WarningCount > 0
+                ? 0xffffcc66
+                : 0xff61e294;
+        canvas.DrawText(inspectorX + 18, 580, $"Errors {analysis.ErrorCount}   Warnings {analysis.WarningCount}", diagnosticColor);
+
+        if (_selectedObjectId is ObjectId selected && _document.Conduits.ContainsKey(selected))
+        {
+            ConduitFill? fill = analysis.ConduitFills.FirstOrDefault(item => item.ConduitId == selected);
+            if (fill is not null)
+            {
+                canvas.DrawText(inspectorX + 18, 606, $"Selected fill {fill.FillRatio:P1}", fill.FillRatio > 0.40 ? 0xffffcc66 : 0xff9eb0bb);
+            }
+        }
+
+        int y = 632;
+        foreach (ProjectDiagnostic diagnostic in analysis.Diagnostics.Take(3))
+        {
+            uint color = diagnostic.Severity == DiagnosticSeverity.Error ? 0xffff6b6b : 0xffffcc66;
+            canvas.DrawText(inspectorX + 18, y, diagnostic.Code, color);
+            y += 22;
         }
     }
 

@@ -1,8 +1,10 @@
+using EutherWire.Document.Analysis;
 using EutherWire.Document.Commands;
 using EutherWire.Document.Editing;
 using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 using EutherWire.Document.Serialization;
+using EutherWire.Document.Templates;
 
 static void Require(bool condition, string message)
 {
@@ -165,5 +167,31 @@ catch (ProjectFormatException exception)
 {
     Require(exception.Message.Contains("missing device", StringComparison.Ordinal), "Dangling references need useful diagnostics.");
 }
+
+ProjectAnalysis garageAnalysis = ProjectAnalyzer.Analyze(ProjectTemplates.CreateGarageDraft());
+Require(garageAnalysis.TotalCableLengthMillimetres == 7400, "Analysis must sum cable geometry in document millimetres.");
+Require(garageAnalysis.TotalConduitLengthMillimetres == 7400, "Analysis must sum conduit geometry.");
+Require(Math.Abs(garageAnalysis.RecommendedCableLengthMillimetres - 9140) < 0.001, "Cable orders need margin and a service loop.");
+ConduitFill garageFill = garageAnalysis.ConduitFills.Single();
+Require(Math.Abs(garageFill.FillRatio - (6.2 * 6.2 / (25 * 25))) < 0.000001, "Conduit fill must use the planning diameter catalogue.");
+Require(garageAnalysis.ErrorCount == 0 && garageAnalysis.WarningCount == 0, "The garage template must be semantically sound.");
+Require(garageAnalysis.Materials.Any(item => item.Category == "cable" && item.Key == nameof(CableKind.Cat6) && Math.Abs(item.Quantity - 9.14) < 0.001), "Material list must aggregate recommended cable metres.");
+
+var invalid = new ProjectDocument("Analysis diagnostics");
+ObjectId mainsId = ObjectId.Parse("mains");
+ObjectId poeId = ObjectId.Parse("poe-load");
+invalid.Add(new Device(mainsId, DeviceKind.DistributionBoard, new Point2(0, 0), "DUPLICATE", [new Port("out", PortKind.MainsPower, new Point2(0, 0))]));
+invalid.Add(new Device(poeId, DeviceKind.Camera, new Point2(1000, 0), "DUPLICATE", [new Port("in", PortKind.EthernetPoe, new Point2(0, 0))]));
+invalid.Add(new CableRoute(
+    ObjectId.Parse("bad-cat6"),
+    "BAD-CAT6",
+    CableKind.Cat6,
+    new Polyline([new Point2(0, 0), new Point2(1000, 0)]),
+    new PortReference(mainsId, "out"),
+    new PortReference(poeId, "in")));
+ProjectAnalysis invalidAnalysis = ProjectAnalyzer.Analyze(invalid);
+Require(invalidAnalysis.Diagnostics.Count(item => item.Code == "label.duplicate") == 2, "Duplicate labels must identify every conflicting object.");
+Require(invalidAnalysis.Diagnostics.Any(item => item.Code == "cable.port.type" && item.Severity == DiagnosticSeverity.Error), "Cable and port type mismatches must be errors.");
+Require(invalidAnalysis.Diagnostics.Any(item => item.Code == "cable.poe.source"), "PoE loads need a PoE-capable source warning.");
 
 Console.WriteLine("EutherWire document checks passed.");

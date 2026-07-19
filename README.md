@@ -40,6 +40,7 @@ The CLI uses the same semantic handles as the UI:
 dotnet run --project src/EutherWire.Cli -- handles examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- move examples/garage.eutherwire camera-north-pipe:vertex:1 7000 -3000
 dotnet run --project src/EutherWire.Cli -- validate examples/garage.eutherwire
+dotnet run --project src/EutherWire.Cli -- report examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- insert-vertex examples/garage.eutherwire camera-north-pipe 1 6500 -1000
 dotnet run --project src/EutherWire.Cli -- delete-vertex examples/garage.eutherwire camera-north-pipe 1
 ```
@@ -49,8 +50,11 @@ must produce no diff.
 
 ## Status
 
-The repository has entered checkpoint 1: architecture is fixed and the
-headless document kernel is being built. See
+The native prototype now covers the document kernel, semantic editing handles,
+TOML persistence, interactive cable and conduit routing, and the first
+checkpoint-3 analysis rules. The inspector and `report` command show exact
+route lengths, recommended cable order length, estimated conduit fill,
+materials, and connection diagnostics. See
 [docs/development-plan.md](docs/development-plan.md).
 
 ## Product principles
