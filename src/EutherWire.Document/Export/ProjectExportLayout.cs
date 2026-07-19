@@ -68,8 +68,7 @@ public static class ProjectExportLayout
     public static Point2[] OpeningPlanEdge(BuildingOpening opening)
     {
         double half = opening.WidthMillimetres / 2;
-        bool xAxis = opening.Surface is MountingSurface.NorthWallInterior or MountingSurface.NorthWallExterior or MountingSurface.SouthWallInterior or MountingSurface.SouthWallExterior;
-        return xAxis
+        return BuildingOpeningGeometry.UsesXAxis(opening.Surface)
             ? [new Point2(opening.Centre.X - half, opening.Centre.Y), new Point2(opening.Centre.X + half, opening.Centre.Y)]
             : [new Point2(opening.Centre.X, opening.Centre.Y - half), new Point2(opening.Centre.X, opening.Centre.Y + half)];
     }

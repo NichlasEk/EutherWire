@@ -52,6 +52,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     private Point3 _draftPointer;
     private UiContext? _ui;
     private DeviceKind _placementKind = DeviceKind.JunctionBox;
+    private OpeningKind _openingKind = OpeningKind.GarageDoor;
     private ViewMode _viewMode;
     private MountingSurface _activeSurface = MountingSurface.FloorInterior;
 
@@ -174,6 +175,11 @@ internal sealed class EutherWireApplication : IForgeApplication
                 PlaceDevice(ScreenToSpatial(pointer.X, pointer.Y));
                 return;
             }
+            if (_activeTool == ToolKind.Opening)
+            {
+                PlaceOpening(ScreenToSpatial(pointer.X, pointer.Y));
+                return;
+            }
             if (_activeTool == ToolKind.Text)
             {
                 PlaceAnnotation(ScreenToDocument(pointer.X, pointer.Y));
@@ -204,13 +210,17 @@ internal sealed class EutherWireApplication : IForgeApplication
                 {
                     _activeSurface = selectedDevice.MountingSurface;
                 }
+                else if (_selectedObjectId is ObjectId openingId && _document.Openings.TryGetValue(openingId, out BuildingOpening? selectedOpening))
+                {
+                    _activeSurface = selectedOpening.Surface;
+                }
                 _statusMessage = _selectedObjectId is ObjectId selected ? $"Selected {selected}" : "Selection cleared";
             }
         }
 
         if (pressed && _activeHandle is EditHandleId active)
         {
-            if (_viewMode == ViewMode.ThreeD && active.Kind is EditHandleKind.Move or EditHandleKind.Vertex)
+            if (_viewMode == ViewMode.ThreeD && active.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Vertex)
             {
                 DocumentHandleEditor.SetSpatialPosition(_document, active, SnapSpatialHandle(ScreenToSpatial(pointer.X, pointer.Y)));
             }
@@ -222,7 +232,7 @@ internal sealed class EutherWireApplication : IForgeApplication
 
         if (released && _activeHandle is EditHandleId completed)
         {
-            if (_viewMode == ViewMode.ThreeD && completed.Kind is EditHandleKind.Move or EditHandleKind.Vertex)
+            if (_viewMode == ViewMode.ThreeD && completed.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Vertex)
             {
                 Point3 destination = DocumentHandleEditor.RequireSpatialPosition(_document, completed);
                 DocumentHandleEditor.SetSpatialPosition(_document, completed, _dragOriginSpatial);
@@ -245,6 +255,7 @@ internal sealed class EutherWireApplication : IForgeApplication
                 }
             }
             _activeHandle = null;
+            SyncSelectedLabelEditor();
         }
     }
 
@@ -362,6 +373,37 @@ internal sealed class EutherWireApplication : IForgeApplication
         _statusMessage = $"Placed {id}; edit text in the inspector";
     }
 
+    private void PlaceOpening(Point3 position)
+    {
+        if (!IsWallSurface(_activeSurface))
+        {
+            _statusMessage = "Choose an inner or outer wall before placing an opening";
+            return;
+        }
+        (double width, double height, string prefix) = _openingKind switch
+        {
+            OpeningKind.GarageDoor => (5000, 2200, "GARAGEPORT"),
+            OpeningKind.Door => (900, 2100, "DÖRR"),
+            OpeningKind.Window => (1200, 1000, "FÖNSTER"),
+            _ => (200, 200, "GENOMFÖRING"),
+        };
+        if (_openingKind is OpeningKind.GarageDoor or OpeningKind.Door) position = new Point3(position.X, position.Y, height / 2);
+        position = BuildingOpeningGeometry.ConstrainCentre(_document.Space, _activeSurface, position, width, height);
+        ObjectId id = ObjectId.Parse($"opening-{Guid.NewGuid():N}");
+        int number = _document.Openings.Values.Count(opening => opening.Kind == _openingKind) + 1;
+        var opening = new BuildingOpening(id, _openingKind, _activeSurface, position, width, height, $"{prefix}-{number:00}");
+        _history.Execute(_document, new AddOpeningCommand(opening));
+        _selectedObjectId = id;
+        _dirty = true;
+        _statusMessage = $"Placed {opening.Label} on {_activeSurface}";
+    }
+
+    private static bool IsWallSurface(MountingSurface surface) => surface is
+        MountingSurface.NorthWallInterior or MountingSurface.NorthWallExterior or
+        MountingSurface.SouthWallInterior or MountingSurface.SouthWallExterior or
+        MountingSurface.WestWallInterior or MountingSurface.WestWallExterior or
+        MountingSurface.EastWallInterior or MountingSurface.EastWallExterior;
+
     private bool HandleChromeActions(in ForgeFrame frame)
     {
         PointerState pointer = frame.Pointer;
@@ -420,6 +462,18 @@ internal sealed class EutherWireApplication : IForgeApplication
                 {
                     _placementKind = PlacementKinds[index];
                     _statusMessage = $"Place: {_placementKind}";
+                    return true;
+                }
+            }
+        }
+        if (_activeTool == ToolKind.Opening)
+        {
+            for (int index = 0; index < OpeningKinds.Length; index++)
+            {
+                if (OpeningKindRect(inspectorX, index).Contains(pointer.X, pointer.Y))
+                {
+                    _openingKind = OpeningKinds[index];
+                    _statusMessage = $"Opening: {_openingKind}";
                     return true;
                 }
             }
@@ -743,10 +797,18 @@ internal sealed class EutherWireApplication : IForgeApplication
             SetDeviceCoordinateEditor(selected, "y", selectedDevice.Position.Y);
             SetDeviceCoordinateEditor(selected, "z", selectedDevice.ElevationMillimetres);
         }
+        if (_document.Openings.TryGetValue(selected, out BuildingOpening? selectedOpening))
+        {
+            SetOpeningDimensionEditor(selected, "width", selectedOpening.WidthMillimetres);
+            SetOpeningDimensionEditor(selected, "height", selectedOpening.HeightMillimetres);
+        }
     }
 
     private void SetDeviceCoordinateEditor(ObjectId id, string axis, double value) =>
         _ui!.SetText(new UiId($"inspector.coordinate.{id}.{axis}"), value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+
+    private void SetOpeningDimensionEditor(ObjectId id, string name, double value) =>
+        _ui!.SetText(new UiId($"inspector.opening.{id}.{name}"), value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
 
     private void SyncRoomEditors()
     {
@@ -916,7 +978,12 @@ internal sealed class EutherWireApplication : IForgeApplication
     private double HandleElevation(EditHandle handle)
     {
         if (_document.Devices.TryGetValue(handle.Id.ObjectId, out Device? device)) return device.ElevationMillimetres;
-        if (_document.Openings.TryGetValue(handle.Id.ObjectId, out BuildingOpening? opening)) return opening.Centre.Z;
+        if (_document.Openings.TryGetValue(handle.Id.ObjectId, out BuildingOpening? opening))
+        {
+            return handle.Id.Kind == EditHandleKind.Resize
+                ? BuildingOpeningGeometry.ResizeHandle(opening, handle.Id.Name ?? throw new InvalidOperationException("Resize handle has no name.")).Z
+                : opening.Centre.Z;
+        }
         if (handle.Id.Kind == EditHandleKind.Vertex && handle.Id.Index is int index)
         {
             if (_document.Conduits.TryGetValue(handle.Id.ObjectId, out Conduit? conduit)) return conduit.Route.SpatialPoints[index].Z;
@@ -1094,14 +1161,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     }
 
     private static Point3[] OpeningCorners(BuildingOpening opening)
-    {
-        double halfWidth = opening.WidthMillimetres / 2;
-        double halfHeight = opening.HeightMillimetres / 2;
-        bool xAxis = opening.Surface is MountingSurface.NorthWallInterior or MountingSurface.NorthWallExterior or MountingSurface.SouthWallInterior or MountingSurface.SouthWallExterior;
-        return xAxis
-            ? [new(opening.Centre.X - halfWidth, opening.Centre.Y, opening.Centre.Z - halfHeight), new(opening.Centre.X + halfWidth, opening.Centre.Y, opening.Centre.Z - halfHeight), new(opening.Centre.X + halfWidth, opening.Centre.Y, opening.Centre.Z + halfHeight), new(opening.Centre.X - halfWidth, opening.Centre.Y, opening.Centre.Z + halfHeight)]
-            : [new(opening.Centre.X, opening.Centre.Y - halfWidth, opening.Centre.Z - halfHeight), new(opening.Centre.X, opening.Centre.Y + halfWidth, opening.Centre.Z - halfHeight), new(opening.Centre.X, opening.Centre.Y + halfWidth, opening.Centre.Z + halfHeight), new(opening.Centre.X, opening.Centre.Y - halfWidth, opening.Centre.Z + halfHeight)];
-    }
+        => BuildingOpeningGeometry.Corners(opening);
 
     private static Point2[] OpeningPlanEdge(BuildingOpening opening)
     {
@@ -1294,7 +1354,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, active ? 0xff63d4ff : 0xff3c5261);
             canvas.DrawText(rect.X + 10, rect.Y + 13, ToolLabel((ToolKind)index), active ? 0xff63d4ff : 0xff9eb0bb);
         }
-        canvas.DrawText(14, 360, "VIEW", 0xff728996);
+        canvas.DrawText(14, 408, "VIEW", 0xff728996);
         for (int index = 0; index < 2; index++)
         {
             RectI rect = ViewRect(index);
@@ -1302,7 +1362,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, active ? 0xffffcc66 : 0xff3c5261);
             canvas.DrawText(rect.X + 8, rect.Y + 13, index == 0 ? "PLAN" : "3D", active ? 0xffffcc66 : 0xff9eb0bb);
         }
-        canvas.DrawText(14, 470, "CAMERA", 0xff728996);
+        canvas.DrawText(14, 522, "CAMERA", 0xff728996);
         RectI cameraRect = CameraRect();
         canvas.DrawRect(cameraRect.X, cameraRect.Y, cameraRect.Width, cameraRect.Height, _viewMode == ViewMode.ThreeD ? 0xffffcc66 : 0xff3c5261);
         canvas.DrawText(cameraRect.X + 7, cameraRect.Y + 13, _camera3D.ViewLabel, _viewMode == ViewMode.ThreeD ? 0xffffcc66 : 0xff667680);
@@ -1328,6 +1388,10 @@ internal sealed class EutherWireApplication : IForgeApplication
         else if (_activeTool == ToolKind.PlaceDevice)
         {
             DrawSymbolPalette(canvas, inspectorX);
+        }
+        else if (_activeTool == ToolKind.Opening)
+        {
+            DrawOpeningPalette(canvas, inspectorX);
         }
         else if (_selectedObjectId is ObjectId selected)
         {
@@ -1401,6 +1465,21 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, active ? 0xffffcc66 : 0xff40515e);
             canvas.DrawText(rect.X + 8, rect.Y + 12, SymbolLabel(kind), active ? 0xffffcc66 : 0xffa9bbc5);
         }
+    }
+
+    private void DrawOpeningPalette(SoftwareCanvas canvas, int inspectorX)
+    {
+        canvas.DrawText(inspectorX + 18, 260, "WALL OPENING", 0xff9eb0bb);
+        for (int index = 0; index < OpeningKinds.Length; index++)
+        {
+            OpeningKind kind = OpeningKinds[index];
+            RectI rect = OpeningKindRect(inspectorX, index);
+            bool active = kind == _openingKind;
+            canvas.FillRect(rect.X, rect.Y, rect.Width, rect.Height, 0xff15212a);
+            canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, active ? 0xffffcc66 : 0xff40515e);
+            canvas.DrawText(rect.X + 7, rect.Y + 12, OpeningLabel(kind), active ? 0xffffcc66 : 0xffa9bbc5);
+        }
+        canvas.DrawText(inspectorX + 18, 378, IsWallSurface(_activeSurface) ? $"TARGET  {_activeSurface}" : "SELECT A WALL SURFACE", IsWallSurface(_activeSurface) ? 0xff61e294 : 0xffffcc66);
     }
 
     private void DrawPropertyControls(SoftwareCanvas canvas, int inspectorX, ObjectId selected)
@@ -1483,11 +1562,43 @@ internal sealed class EutherWireApplication : IForgeApplication
             DrawChromeButton(canvas, PropertyMinusRect(inspectorX), "-", true);
             DrawChromeButton(canvas, PropertyPlusRect(inspectorX), "+", true);
         }
+        else if (opening is not null)
+        {
+            canvas.DrawText(inspectorX + 18, 356, "EXACT OPENING SIZE (MM)", 0xff9eb0bb);
+            DrawOpeningDimension(canvas, inspectorX, selected, opening, 0, "WIDTH", "width");
+            DrawOpeningDimension(canvas, inspectorX, selected, opening, 1, "HEIGHT", "height");
+            canvas.DrawText(inspectorX + 18, 466, $"CENTRE Z  {opening.Centre.Z:0} mm", 0xff9eb0bb);
+        }
         if (TryGetEditableRoute(selected, out Polyline? route))
         {
             DrawChromeButton(canvas, AddVertexRect(inspectorX), "+ POINT", true);
             DrawChromeButton(canvas, DeleteVertexRect(inspectorX), "- POINT", route!.Points.Count > 2);
         }
+    }
+
+    private void DrawOpeningDimension(SoftwareCanvas canvas, int inspectorX, ObjectId selected, BuildingOpening opening, int row, string label, string name)
+    {
+        int y = 374 + row * 42;
+        canvas.DrawText(inspectorX + 18, y + 10, label, 0xffc7d4dc);
+        double current = name == "width" ? opening.WidthMillimetres : opening.HeightMillimetres;
+        UiTextBoxResult text = _ui!.TextBox(
+            new UiId($"inspector.opening.{selected}.{name}"),
+            new RectI(inspectorX + 88, y, 150, 30),
+            current.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+            label,
+            new UiTextBoxOptions(Numeric: true, MaxLength: 10));
+        if (!text.Submitted) return;
+        if (!TryParsePositive(text.Text, out double value))
+        {
+            _statusMessage = $"{label} must be greater than zero";
+            SetOpeningDimensionEditor(selected, name, current);
+            return;
+        }
+        string propertyName = name == "width" ? "width_mm" : "height_mm";
+        _history.Execute(_document, DocumentProperties.CreateSetCommand(_document, new PropertyHandleId(selected, propertyName), value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)));
+        _dirty = true;
+        _statusMessage = $"Set {opening.Label} {name} to {value:0.###} mm";
+        SyncSelectedLabelEditor();
     }
 
     private void DrawDeviceCoordinate(SoftwareCanvas canvas, int inspectorX, ObjectId selected, Device device, int row, string axis)
@@ -1636,6 +1747,8 @@ internal sealed class EutherWireApplication : IForgeApplication
     private static RectI DiagnosticRect(int inspectorX, int index) => new(inspectorX + 18, 700 + index * 30, 220, 24);
     private static RectI SymbolRect(int inspectorX, int index) =>
         new(inspectorX + 18 + index % 2 * 112, 282 + index / 2 * 42, 102, 32);
+    private static RectI OpeningKindRect(int inspectorX, int index) =>
+        new(inspectorX + 18 + index % 2 * 112, 282 + index / 2 * 42, 102, 32);
 
     private static void DrawChromeButton(SoftwareCanvas canvas, RectI rect, string label, bool enabled)
     {
@@ -1647,10 +1760,10 @@ internal sealed class EutherWireApplication : IForgeApplication
     }
 
     private static RectI ToolRect(int index) => new(10, 64 + index * 48, 52, 34);
-    private static RectI ViewRect(int index) => new(10, 380 + index * 44, 52, 32);
-    private static RectI CameraRect() => new(10, 490, 52, 32);
+    private static RectI ViewRect(int index) => new(10, 428 + index * 44, 52, 32);
+    private static RectI CameraRect() => new(10, 542, 52, 32);
 
-    private const int ToolCount = 6;
+    private const int ToolCount = 7;
 
     private static string ToolLabel(ToolKind tool) => tool switch
     {
@@ -1660,6 +1773,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         ToolKind.Wire => "WIRE",
         ToolKind.Conduit => "PIPE",
         ToolKind.Text => "TEXT",
+        ToolKind.Opening => "OPEN",
         _ => "?",
     };
 
@@ -1729,6 +1843,22 @@ internal sealed class EutherWireApplication : IForgeApplication
         DeviceKind.Light,
     ];
 
+    private static readonly OpeningKind[] OpeningKinds =
+    [
+        OpeningKind.GarageDoor,
+        OpeningKind.Door,
+        OpeningKind.Window,
+        OpeningKind.Penetration,
+    ];
+
+    private static string OpeningLabel(OpeningKind kind) => kind switch
+    {
+        OpeningKind.GarageDoor => "PORT",
+        OpeningKind.Door => "DÖRR",
+        OpeningKind.Window => "FÖNSTER",
+        _ => "GENOMF",
+    };
+
     private static string SymbolLabel(DeviceKind kind) => kind switch
     {
         DeviceKind.JunctionBox => "DOSA",
@@ -1749,6 +1879,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         Wire,
         Conduit,
         Text,
+        Opening,
     }
 
     private enum ViewMode

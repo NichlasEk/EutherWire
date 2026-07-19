@@ -208,6 +208,14 @@ Require(garageDocument.Space == SpaceVolume.GarageDefault, "Garage Draft needs a
 BuildingOpening garageDoor = garageDocument.RequireOpening(ObjectId.Parse("garage-door-south"));
 Require(garageDoor.Kind == OpeningKind.GarageDoor && garageDoor.Surface == MountingSurface.SouthWallInterior, "Garage Draft needs a first-class garage-door opening on a real wall.");
 Require(garageDoor.WidthMillimetres == 5000 && garageDoor.HeightMillimetres == 2200, "Building openings need exact dimensions.");
+EditHandleId garageDoorResizeEnd = EditHandleId.Parse("garage-door-south:resize:end");
+Require(DocumentHandles.Enumerate(garageDocument).Any(handle => handle.Id == garageDoorResizeEnd), "Building openings need stable named resize handles.");
+var openingHistory = new CommandHistory();
+openingHistory.Execute(garageDocument, new MoveSpatialHandleCommand(garageDoorResizeEnd, new Point3(8500, 2500, 2400)));
+Require(garageDoor.WidthMillimetres == 5500 && garageDoor.HeightMillimetres == 2400, "A spatial resize handle must edit opening width and height together.");
+Require(garageDoor.Centre == new Point3(5750, 2500, 1200), "Opening resize handles must retain the opposite corner and move the centre.");
+Require(openingHistory.Undo(garageDocument), "Opening resize handles must be undoable.");
+Require(garageDoor.WidthMillimetres == 5000 && garageDoor.HeightMillimetres == 2200 && garageDoor.Centre == new Point3(5500, 2500, 1100), "Opening resize undo must restore exact geometry.");
 Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).ElevationMillimetres == 2200, "Devices need installation elevation in 3D space.");
 Require(garageDocument.RequireConduit(ObjectId.Parse("camera-north-pipe")).Route.SpatialPoints.All(point => point.Z == 2200), "Routes need per-vertex 3D elevation.");
 Require(garageAnalysis.TotalCableLengthMillimetres == 7400, "Analysis must sum cable geometry in document millimetres.");

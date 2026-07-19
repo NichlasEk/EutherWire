@@ -39,6 +39,10 @@ The intended workflow is:
   wall-opening kinds with wall surface, 3D centre, width, height, label,
   stable move/property handles, and deterministic TOML/SVG/PNG output.
 - Garage Draft contains a 5,000 × 2,200 mm garage door on the south wall.
+- The `OPEN` tool places garage doors, doors, windows, and penetrations on the
+  selected inner or outer wall. Two named 3D corner handles resize width and
+  height while preserving the opposite corner; exact dimensions remain
+  available in the inspector and through property handles.
 - The renderer shows distinct inner and outer wall shells and the ceiling slab.
 - The active mounting surface has a yellow 3D outline.
 - Existing devices and elevated routes render inside the garage shell.
@@ -71,7 +75,6 @@ All of these remain command-based and addressable without screen coordinates.
 
 ### Garage geometry
 
-- interactive opening placement and resize handles;
 - beams, pillars, workbench, and vehicle clearance volumes;
 - imported measured floor plan as a calibration layer;
 - subtract opening areas from filled wall rendering;

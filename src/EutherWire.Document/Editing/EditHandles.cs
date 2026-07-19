@@ -43,7 +43,7 @@ public readonly record struct EditHandleId(
         {
             return new EditHandleId(objectId, kind, index);
         }
-        if (kind == EditHandleKind.Port && !string.IsNullOrWhiteSpace(parts[2]))
+        if ((kind is EditHandleKind.Port or EditHandleKind.Resize) && !string.IsNullOrWhiteSpace(parts[2]))
         {
             return new EditHandleId(objectId, kind, Name: parts[2]);
         }
@@ -84,6 +84,10 @@ public static class DocumentHandles
         foreach (BuildingOpening opening in document.Openings.Values.OrderBy(opening => opening.Id.Value, StringComparer.Ordinal))
         {
             handles.Add(new EditHandle(new EditHandleId(opening.Id, EditHandleKind.Move), opening.Centre.Plan));
+            Point3 start = BuildingOpeningGeometry.ResizeHandle(opening, "start");
+            Point3 end = BuildingOpeningGeometry.ResizeHandle(opening, "end");
+            handles.Add(new EditHandle(new EditHandleId(opening.Id, EditHandleKind.Resize, Name: "start"), start.Plan));
+            handles.Add(new EditHandle(new EditHandleId(opening.Id, EditHandleKind.Resize, Name: "end"), end.Plan));
         }
 
         foreach (CableRoute cable in document.Cables.Values.OrderBy(cable => cable.Id.Value, StringComparer.Ordinal))
@@ -144,7 +148,12 @@ public static class DocumentHandleEditor
         {
             return new Point3(position.X, position.Y, device.ElevationMillimetres);
         }
-        if (document.Openings.TryGetValue(id.ObjectId, out BuildingOpening? opening)) return opening.Centre;
+        if (document.Openings.TryGetValue(id.ObjectId, out BuildingOpening? opening))
+        {
+            return id.Kind == EditHandleKind.Resize
+                ? BuildingOpeningGeometry.ResizeHandle(opening, id.Name ?? throw new InvalidOperationException("Resize handle has no name."))
+                : opening.Centre;
+        }
         if (id.Kind == EditHandleKind.Vertex && id.Index >= 0)
         {
             if (document.Conduits.TryGetValue(id.ObjectId, out Conduit? conduit)) return conduit.Route.SpatialPoints[id.Index];
@@ -154,7 +163,7 @@ public static class DocumentHandleEditor
     }
 
     public static bool CanSetPosition(EditHandleId id) =>
-        id.Kind is EditHandleKind.Move or EditHandleKind.Rotate or EditHandleKind.Vertex or EditHandleKind.LabelAnchor;
+        id.Kind is EditHandleKind.Move or EditHandleKind.Rotate or EditHandleKind.Resize or EditHandleKind.Vertex or EditHandleKind.LabelAnchor;
 
     public static void SetPosition(ProjectDocument document, EditHandleId id, Point2 position)
     {
@@ -183,6 +192,11 @@ public static class DocumentHandleEditor
                 }
                 device.RotationDegrees = NormalizeDegrees(Math.Atan2(y, x) * 180 / Math.PI + 90);
                 return;
+            case EditHandleKind.Resize:
+                BuildingOpening resizeOpening = document.RequireOpening(id.ObjectId);
+                Point3 current = BuildingOpeningGeometry.ResizeHandle(resizeOpening, id.Name ?? throw new InvalidOperationException("Resize handle has no name."));
+                BuildingOpeningGeometry.ResizeFromHandle(resizeOpening, id.Name!, new Point3(position.X, position.Y, current.Z));
+                return;
             case EditHandleKind.Vertex:
                 SetRouteVertex(document, id, position);
                 return;
@@ -200,6 +214,12 @@ public static class DocumentHandleEditor
         {
             throw new ArgumentOutOfRangeException(nameof(position), "Spatial handle coordinates must be finite and elevation non-negative.");
         }
+        if (id.Kind == EditHandleKind.Resize && document.Openings.TryGetValue(id.ObjectId, out BuildingOpening? resizeOpening))
+        {
+            position = MountingSurfaceGeometry.Constrain(document.Space, resizeOpening.Surface, position);
+            BuildingOpeningGeometry.ResizeFromHandle(resizeOpening, id.Name ?? throw new InvalidOperationException("Resize handle has no name."), position);
+            return;
+        }
         Device? spatialDevice = id.Kind == EditHandleKind.Move && document.Devices.TryGetValue(id.ObjectId, out Device? candidate)
             ? candidate
             : null;
@@ -212,7 +232,7 @@ public static class DocumentHandleEditor
         }
         else if (spatialOpening is not null)
         {
-            position = MountingSurfaceGeometry.Constrain(document.Space, spatialOpening.Surface, position);
+            position = BuildingOpeningGeometry.ConstrainCentre(document.Space, spatialOpening.Surface, position, spatialOpening.WidthMillimetres, spatialOpening.HeightMillimetres);
         }
         SetPosition(document, id, position.Plan);
         if (spatialDevice is not null)

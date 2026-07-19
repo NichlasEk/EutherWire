@@ -361,7 +361,7 @@ public sealed class SetOpeningGeometryCommand(
         _ = new BuildingOpening(opening.Id, nextKind, nextSurface, nextCentre, width, height, opening.Label);
         opening.Kind = nextKind;
         opening.Surface = nextSurface;
-        opening.Centre = MountingSurfaceGeometry.Constrain(document.Space, nextSurface, nextCentre);
+        opening.Centre = BuildingOpeningGeometry.ConstrainCentre(document.Space, nextSurface, nextCentre, width, height);
         opening.WidthMillimetres = width;
         opening.HeightMillimetres = height;
     }

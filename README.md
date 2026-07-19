@@ -49,6 +49,10 @@ Garage Draft now includes a first-class 5,000 × 2,200 mm garage-door opening
 on the south wall. Openings retain their wall, 3D centre, dimensions, stable
 handles, and IDs through TOML, SVG, and PNG export.
 
+Choose an inner or outer wall, select `OPEN`, pick `PORT`, `DÖRR`, `FÖNSTER`,
+or `GENOMF`, and click the wall. Selecting the opening exposes exact width and
+height fields plus named `resize:start` and `resize:end` handles.
+
 This initializes WaylandForge if needed, builds the solution, and opens a
 writable Garage Draft under `.eutherwire-work/`. The tracked example is never
 modified. Other useful modes are:
