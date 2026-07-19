@@ -44,13 +44,14 @@ internal sealed class EutherWireApplication : IForgeApplication
     private Point2 _dragOrigin;
     private string _statusMessage = "Ready";
     private bool _dirty;
-    private readonly List<Point2> _draftPoints = [];
+    private readonly List<Point3> _draftPoints = [];
     private PortReference? _draftFrom;
     private PortReference? _draftTo;
-    private Point2 _draftPointer;
+    private Point3 _draftPointer;
     private UiContext? _ui;
     private DeviceKind _placementKind = DeviceKind.JunctionBox;
     private ViewMode _viewMode;
+    private MountingSurface _activeSurface = MountingSurface.FloorInterior;
 
     public EutherWireApplication(ProjectDocument document, string? projectDirectory, bool startIn3D = false)
     {
@@ -74,7 +75,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
         if (work.Contains(frame.Pointer.X, frame.Pointer.Y))
         {
-            _draftPointer = SnapRoutePoint(ScreenToDocument(frame.Pointer.X, frame.Pointer.Y));
+            _draftPointer = SnapRoutePoint(ScreenToSpatial(frame.Pointer.X, frame.Pointer.Y));
         }
         HandleNavigation(frame);
         SoftwareCanvas canvas = frame.Canvas;
@@ -143,7 +144,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             }
             if (_activeTool == ToolKind.PlaceDevice)
             {
-                PlaceDevice(ScreenToDocument(pointer.X, pointer.Y));
+                PlaceDevice(ScreenToSpatial(pointer.X, pointer.Y));
                 return;
             }
             if (_activeTool == ToolKind.Text)
@@ -194,7 +195,7 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private void AddDraftPoint(int screenX, int screenY)
     {
-        Point2 point = SnapRoutePoint(ScreenToDocument(screenX, screenY));
+        Point3 point = SnapRoutePoint(ScreenToSpatial(screenX, screenY));
         PortReference? port = _activeTool == ToolKind.Wire ? HitPort(screenX, screenY) : null;
         if (port is PortReference portReference)
         {
@@ -215,30 +216,40 @@ internal sealed class EutherWireApplication : IForgeApplication
         if (_draftPoints.Count == 0 || _draftPoints[^1] != point)
         {
             _draftPoints.Add(point);
-            _statusMessage = $"{ToolLabel(_activeTool)} point {_draftPoints.Count}: {point.X:0}, {point.Y:0} mm";
+            _statusMessage = $"{ToolLabel(_activeTool)} point {_draftPoints.Count}: {point.X:0}, {point.Y:0}, Z {point.Z:0} mm";
         }
     }
 
-    private Point2 SnapRoutePoint(Point2 point)
+    private Point3 SnapRoutePoint(Point3 point)
     {
-        Point2 snapped = new(Math.Round(point.X / 100) * 100, Math.Round(point.Y / 100) * 100);
+        Point3 snapped = new(Math.Round(point.X / 100) * 100, Math.Round(point.Y / 100) * 100, Math.Round(point.Z / 100) * 100);
         if (_draftPoints.Count == 0)
         {
             return snapped;
         }
-        Point2 origin = _draftPoints[^1];
-        double dx = snapped.X - origin.X;
-        double dy = snapped.Y - origin.Y;
-        if (dx == 0 && dy == 0)
+        Point3 origin = _draftPoints[^1];
+        bool fixedX = _activeSurface is MountingSurface.WestWallInterior or MountingSurface.WestWallExterior or MountingSurface.EastWallInterior or MountingSurface.EastWallExterior;
+        bool fixedY = _activeSurface is MountingSurface.NorthWallInterior or MountingSurface.NorthWallExterior or MountingSurface.SouthWallInterior or MountingSurface.SouthWallExterior;
+        double first = fixedX ? snapped.Y : snapped.X;
+        double second = fixedX || fixedY ? snapped.Z : snapped.Y;
+        double originFirst = fixedX ? origin.Y : origin.X;
+        double originSecond = fixedX || fixedY ? origin.Z : origin.Y;
+        double deltaFirst = first - originFirst;
+        double deltaSecond = second - originSecond;
+        if (deltaFirst == 0 && deltaSecond == 0)
         {
             return snapped;
         }
-        double angle = Math.Atan2(dy, dx);
+        double angle = Math.Atan2(deltaSecond, deltaFirst);
         double snappedAngle = Math.Round(angle / (Math.PI / 4)) * (Math.PI / 4);
-        double length = Math.Sqrt(dx * dx + dy * dy);
-        return new Point2(
-            Math.Round((origin.X + Math.Cos(snappedAngle) * length) / 100) * 100,
-            Math.Round((origin.Y + Math.Sin(snappedAngle) * length) / 100) * 100);
+        double length = Math.Sqrt(deltaFirst * deltaFirst + deltaSecond * deltaSecond);
+        first = Math.Round((originFirst + Math.Cos(snappedAngle) * length) / 100) * 100;
+        second = Math.Round((originSecond + Math.Sin(snappedAngle) * length) / 100) * 100;
+        return fixedX
+            ? new Point3(snapped.X, first, second)
+            : fixedY
+                ? new Point3(first, snapped.Y, second)
+                : new Point3(first, second, snapped.Z);
     }
 
     private PortReference? HitPort(int screenX, int screenY)
@@ -258,22 +269,24 @@ internal sealed class EutherWireApplication : IForgeApplication
         return null;
     }
 
-    private Point2 PortPosition(PortReference reference)
+    private Point3 PortPosition(PortReference reference)
     {
         var handleId = new EditHandleId(reference.DeviceId, EditHandleKind.Port, Name: reference.PortId);
-        return DocumentHandleEditor.RequirePosition(_document, handleId);
+        Point2 position = DocumentHandleEditor.RequirePosition(_document, handleId);
+        return new Point3(position.X, position.Y, _document.RequireDevice(reference.DeviceId).ElevationMillimetres);
     }
 
-    private void PlaceDevice(Point2 position)
+    private void PlaceDevice(Point3 position)
     {
-        Point2 snapped = new(Math.Round(position.X / 100) * 100, Math.Round(position.Y / 100) * 100);
+        Point3 snapped = new(Math.Round(position.X / 100) * 100, Math.Round(position.Y / 100) * 100, Math.Round(position.Z / 100) * 100);
         ObjectId id = ObjectId.Parse($"junction-{Guid.NewGuid():N}");
         int number = _document.Devices.Values.Count(device => device.Kind == _placementKind) + 1;
-        var device = CreatePlacedDevice(id, snapped, number);
+        MountingSurface surface = _viewMode == ViewMode.ThreeD ? _activeSurface : MountingSurface.Free;
+        var device = CreatePlacedDevice(id, snapped.Plan, number, snapped.Z, surface);
         _history.Execute(_document, new AddDeviceCommand(device));
         _selectedObjectId = id;
         _dirty = true;
-        _statusMessage = $"Placed {id} at {snapped.X:0}, {snapped.Y:0} mm";
+        _statusMessage = $"Placed {id} on {device.MountingSurface} at {snapped.X:0}, {snapped.Y:0}, Z {snapped.Z:0} mm";
     }
 
     private void PlaceAnnotation(Point2 position)
@@ -424,12 +437,18 @@ internal sealed class EutherWireApplication : IForgeApplication
             _statusMessage = _viewMode == ViewMode.ThreeD ? "3D view · drawing plane: floor" : "Plan view";
             return true;
         }
+        if (SurfaceRect(inspectorX).Contains(pointer.X, pointer.Y))
+        {
+            CycleSurface();
+            return true;
+        }
         if (ButtonRect(inspectorX, 1).Contains(pointer.X, pointer.Y))
         {
             if (_history.Undo(_document))
             {
                 EnsureSelectionExists();
                 SyncSelectedLabelEditor();
+                SyncRoomEditors();
                 _dirty = true;
                 _statusMessage = "Undo";
             }
@@ -441,6 +460,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             {
                 EnsureSelectionExists();
                 SyncSelectedLabelEditor();
+                SyncRoomEditors();
                 _dirty = true;
                 _statusMessage = "Redo";
             }
@@ -480,6 +500,15 @@ internal sealed class EutherWireApplication : IForgeApplication
         _history.Execute(_document, new SetCableInstallationCommand(cable.Id, statuses[index], cable.ActualLengthMillimetres));
         _dirty = true;
         _statusMessage = $"Installation: {statuses[index]}";
+    }
+
+    private void CycleSurface()
+    {
+        MountingSurface[] surfaces = Enum.GetValues<MountingSurface>().Where(surface => surface != MountingSurface.Free).ToArray();
+        int index = (Array.IndexOf(surfaces, _activeSurface) + 1) % surfaces.Length;
+        _activeSurface = surfaces[index];
+        CancelDraft("Drawing surface changed; draft cancelled");
+        _statusMessage = $"3D drawing surface: {_activeSurface}";
     }
 
     private void SetConduitDiameter(Conduit conduit, int direction)
@@ -642,6 +671,20 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
+    private void SyncRoomEditors()
+    {
+        if (_ui is null) return;
+        SpaceVolume space = _document.Space;
+        SetRoomEditor("width", space.WidthMillimetres);
+        SetRoomEditor("depth", space.DepthMillimetres);
+        SetRoomEditor("height", space.HeightMillimetres);
+        SetRoomEditor("wall", space.WallThicknessMillimetres);
+        SetRoomEditor("ceiling", space.CeilingThicknessMillimetres);
+    }
+
+    private void SetRoomEditor(string name, double value) =>
+        _ui!.SetText(new UiId($"room.{name}"), value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+
     private void SaveProject()
     {
         if (_projectDirectory is null)
@@ -770,12 +813,16 @@ internal sealed class EutherWireApplication : IForgeApplication
     }
 
     private Point2 ScreenToDocument(double screenX, double screenY)
+        => ScreenToSpatial(screenX, screenY).Plan;
+
+    private Point3 ScreenToSpatial(double screenX, double screenY)
     {
-        if (_viewMode != ViewMode.ThreeD) return _camera.ScreenToDocument(screenX, screenY);
-        Point2 point = _camera3D.UnprojectFloor(screenX, screenY);
-        return new Point2(
-            Math.Clamp(point.X, _document.Space.Origin.X, _document.Space.Origin.X + _document.Space.WidthMillimetres),
-            Math.Clamp(point.Y, _document.Space.Origin.Y, _document.Space.Origin.Y + _document.Space.DepthMillimetres));
+        if (_viewMode != ViewMode.ThreeD)
+        {
+            Point2 plan = _camera.ScreenToDocument(screenX, screenY);
+            return new Point3(plan.X, plan.Y, 0);
+        }
+        return _camera3D.UnprojectSurface(screenX, screenY, _activeSurface);
     }
 
     private (double X, double Y) HandleToScreen(EditHandle handle)
@@ -832,6 +879,12 @@ internal sealed class EutherWireApplication : IForgeApplication
         double y0 = space.Origin.Y;
         double y1 = y0 + space.DepthMillimetres;
         double top = space.HeightMillimetres;
+        double wall = space.WallThicknessMillimetres;
+        double outerX0 = x0 - wall;
+        double outerX1 = x1 + wall;
+        double outerY0 = y0 - wall;
+        double outerY1 = y1 + wall;
+        double outerTop = top + space.CeilingThicknessMillimetres;
 
         for (double x = Math.Ceiling(x0 / 1000) * 1000; x <= x1; x += 1000)
         {
@@ -844,12 +897,19 @@ internal sealed class EutherWireApplication : IForgeApplication
 
         Point3[] floor = [new(x0, y0, 0), new(x1, y0, 0), new(x1, y1, 0), new(x0, y1, 0)];
         Point3[] ceiling = [new(x0, y0, top), new(x1, y0, top), new(x1, y1, top), new(x0, y1, top)];
+        Point3[] outerFloor = [new(outerX0, outerY0, 0), new(outerX1, outerY0, 0), new(outerX1, outerY1, 0), new(outerX0, outerY1, 0)];
+        Point3[] outerCeiling = [new(outerX0, outerY0, outerTop), new(outerX1, outerY0, outerTop), new(outerX1, outerY1, outerTop), new(outerX0, outerY1, outerTop)];
         for (int index = 0; index < 4; index++)
         {
             Draw3DLine(canvas, floor[index], floor[(index + 1) % 4], 0xff7394a5, 2);
             Draw3DLine(canvas, ceiling[index], ceiling[(index + 1) % 4], 0xff405c6b, 1);
             Draw3DLine(canvas, floor[index], ceiling[index], 0xff526e7d, 1);
+            Draw3DLine(canvas, outerFloor[index], outerFloor[(index + 1) % 4], 0xff6c5335, 2);
+            Draw3DLine(canvas, outerCeiling[index], outerCeiling[(index + 1) % 4], 0xff8b6e43, 2);
+            Draw3DLine(canvas, outerFloor[index], outerCeiling[index], 0xff6c5335, 2);
+            Draw3DLine(canvas, ceiling[index], outerCeiling[index], 0xff8b6e43, 1);
         }
+        DrawActiveSurface(canvas, space);
 
         foreach (Conduit conduit in _document.Conduits.Values)
         {
@@ -875,11 +935,46 @@ internal sealed class EutherWireApplication : IForgeApplication
 
         if (_draftPoints.Count > 0)
         {
-            IReadOnlyList<Point3> draft = _draftPoints.Select(point => new Point3(point.X, point.Y, 0)).Append(new Point3(_draftPointer.X, _draftPointer.Y, 0)).ToList();
+            IReadOnlyList<Point3> draft = _draftPoints.Append(_draftPointer).ToList();
             Draw3DRoute(canvas, draft, 0xffffcc66, 2);
         }
         Draw3DHandles(canvas);
-        canvas.DrawText(work.X + 14, work.Y + 14, "3D GARAGE · FLOOR DRAWING PLANE", 0xffffcc66);
+        canvas.DrawText(work.X + 14, work.Y + 14, $"3D GARAGE · {_activeSurface}", 0xffffcc66);
+    }
+
+    private void DrawActiveSurface(SoftwareCanvas canvas, SpaceVolume space)
+    {
+        Point3[] corners = SurfaceCorners(space, _activeSurface);
+        for (int index = 0; index < corners.Length; index++)
+        {
+            Draw3DLine(canvas, corners[index], corners[(index + 1) % corners.Length], 0xffffcc66, 3);
+        }
+    }
+
+    private static Point3[] SurfaceCorners(SpaceVolume space, MountingSurface surface)
+    {
+        double x0 = space.Origin.X;
+        double x1 = x0 + space.WidthMillimetres;
+        double y0 = space.Origin.Y;
+        double y1 = y0 + space.DepthMillimetres;
+        double top = space.HeightMillimetres;
+        double wall = space.WallThicknessMillimetres;
+        bool exterior = surface.ToString().EndsWith("Exterior", StringComparison.Ordinal);
+        double spanX0 = exterior ? x0 - wall : x0;
+        double spanX1 = exterior ? x1 + wall : x1;
+        double spanY0 = exterior ? y0 - wall : y0;
+        double spanY1 = exterior ? y1 + wall : y1;
+        double wallTop = exterior ? top + space.CeilingThicknessMillimetres : top;
+        return surface switch
+        {
+            MountingSurface.CeilingInterior => [new(x0, y0, top), new(x1, y0, top), new(x1, y1, top), new(x0, y1, top)],
+            MountingSurface.CeilingExterior => [new(spanX0, spanY0, wallTop), new(spanX1, spanY0, wallTop), new(spanX1, spanY1, wallTop), new(spanX0, spanY1, wallTop)],
+            MountingSurface.NorthWallInterior or MountingSurface.NorthWallExterior => [new(spanX0, exterior ? y0 - wall : y0, 0), new(spanX1, exterior ? y0 - wall : y0, 0), new(spanX1, exterior ? y0 - wall : y0, wallTop), new(spanX0, exterior ? y0 - wall : y0, wallTop)],
+            MountingSurface.SouthWallInterior or MountingSurface.SouthWallExterior => [new(spanX0, exterior ? y1 + wall : y1, 0), new(spanX1, exterior ? y1 + wall : y1, 0), new(spanX1, exterior ? y1 + wall : y1, wallTop), new(spanX0, exterior ? y1 + wall : y1, wallTop)],
+            MountingSurface.WestWallInterior or MountingSurface.WestWallExterior => [new(exterior ? x0 - wall : x0, spanY0, 0), new(exterior ? x0 - wall : x0, spanY1, 0), new(exterior ? x0 - wall : x0, spanY1, wallTop), new(exterior ? x0 - wall : x0, spanY0, wallTop)],
+            MountingSurface.EastWallInterior or MountingSurface.EastWallExterior => [new(exterior ? x1 + wall : x1, spanY0, 0), new(exterior ? x1 + wall : x1, spanY1, 0), new(exterior ? x1 + wall : x1, spanY1, wallTop), new(exterior ? x1 + wall : x1, spanY0, wallTop)],
+            _ => [new(x0, y0, 0), new(x1, y0, 0), new(x1, y1, 0), new(x0, y1, 0)],
+        };
     }
 
     private void Draw3DHandles(SoftwareCanvas canvas)
@@ -981,12 +1076,12 @@ internal sealed class EutherWireApplication : IForgeApplication
             return;
         }
         uint color = _activeTool == ToolKind.Wire ? 0xff55c8ff : 0xff9baab3;
-        DrawRoute(canvas, _draftPoints, color, 3);
-        Point2 last = _draftPoints[^1];
-        DrawRoute(canvas, [last, _draftPointer], 0xffffcc66, 1);
-        foreach (Point2 point in _draftPoints)
+        DrawRoute(canvas, _draftPoints.Select(point => point.Plan).ToList(), color, 3);
+        Point3 last = _draftPoints[^1];
+        DrawRoute(canvas, [last.Plan, _draftPointer.Plan], 0xffffcc66, 1);
+        foreach (Point3 point in _draftPoints)
         {
-            (double x, double y) = _camera.DocumentToScreen(point);
+            (double x, double y) = _camera.DocumentToScreen(point.Plan);
             canvas.DrawRect((int)x - 4, (int)y - 4, 9, 9, color);
         }
     }
@@ -1090,8 +1185,8 @@ internal sealed class EutherWireApplication : IForgeApplication
         DrawChromeButton(canvas, ButtonRect(inspectorX, 2), "REDO", _history.RedoCount > 0);
         DrawChromeButton(canvas, ExportPngRect(inspectorX), "PNG", _projectDirectory is not null);
         DrawChromeButton(canvas, ViewToggleRect(inspectorX), _viewMode == ViewMode.Plan ? "3D" : "PLAN", true);
-        canvas.DrawText(inspectorX + 178, 202, _dirty ? "MOD" : "SAVED", _dirty ? 0xffffcc66 : 0xff61e294);
-        canvas.DrawText(inspectorX + 18, 226, _statusMessage, 0xff9eb0bb);
+        DrawChromeButton(canvas, SurfaceRect(inspectorX), SurfaceLabel(_activeSurface), _viewMode == ViewMode.ThreeD);
+        canvas.DrawText(inspectorX + 18, 226, _dirty ? $"MODIFIED · {_statusMessage}" : _statusMessage, _dirty ? 0xffffcc66 : 0xff9eb0bb);
         if (_draftPoints.Count > 0)
         {
             DrawChromeButton(canvas, FinishRect(inspectorX), "FINISH", _draftPoints.Count >= 2);
@@ -1106,13 +1201,17 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             DrawPropertyControls(canvas, inspectorX, selected);
         }
+        else if (_viewMode == ViewMode.ThreeD)
+        {
+            DrawRoomControls(canvas, inspectorX);
+        }
         DrawProjectAnalysis(canvas, inspectorX);
 
         canvas.FillRect(ToolbarWidth, work.Bottom, work.Width, StatusHeight, 0xff0b1117);
         Point2 documentPoint = ScreenToDocument(pointer.X, pointer.Y);
         canvas.DrawText(ToolbarWidth + 12, work.Bottom + 10,
             _viewMode == ViewMode.ThreeD
-                ? $"3D FLOOR   X {documentPoint.X:0} mm   Y {documentPoint.Y:0} mm   Place and route on floor"
+                ? $"3D {_activeSurface}   X {documentPoint.X:0} mm   Y {documentPoint.Y:0} mm   Place and route on selected surface"
                 : $"X {documentPoint.X:0} mm   Y {documentPoint.Y:0} mm   Zoom {_camera.PixelsPerMillimetre * 1000:0} px/m   MMB/RMB pan   Wheel zoom",
             0xff91a6b3);
     }
@@ -1241,6 +1340,50 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
+    private void DrawRoomControls(SoftwareCanvas canvas, int inspectorX)
+    {
+        canvas.DrawText(inspectorX + 18, 258, "ROOM DIMENSIONS (MM)", 0xff9eb0bb);
+        DrawRoomDimension(canvas, inspectorX, 0, "WIDTH", "width", _document.Space.WidthMillimetres);
+        DrawRoomDimension(canvas, inspectorX, 1, "DEPTH", "depth", _document.Space.DepthMillimetres);
+        DrawRoomDimension(canvas, inspectorX, 2, "HEIGHT", "height", _document.Space.HeightMillimetres);
+        DrawRoomDimension(canvas, inspectorX, 3, "WALL", "wall", _document.Space.WallThicknessMillimetres);
+        DrawRoomDimension(canvas, inspectorX, 4, "CEILING", "ceiling", _document.Space.CeilingThicknessMillimetres);
+    }
+
+    private void DrawRoomDimension(SoftwareCanvas canvas, int inspectorX, int row, string label, string name, double current)
+    {
+        int y = 280 + row * 45;
+        canvas.DrawText(inspectorX + 18, y + 10, label, 0xffc7d4dc);
+        UiTextBoxResult text = _ui!.TextBox(
+            new UiId($"room.{name}"),
+            new RectI(inspectorX + 112, y, 126, 30),
+            current.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+            "millimetres",
+            new UiTextBoxOptions(Numeric: true, MaxLength: 10));
+        if (!text.Submitted) return;
+        if (!TryParsePositive(text.Text, out double value))
+        {
+            _statusMessage = $"{label} must be greater than zero";
+            SetRoomEditor(name, current);
+            return;
+        }
+
+        SpaceVolume space = _document.Space;
+        SpaceVolume updated = name switch
+        {
+            "width" => space with { WidthMillimetres = value },
+            "depth" => space with { DepthMillimetres = value },
+            "height" => space with { HeightMillimetres = value },
+            "wall" => space with { WallThicknessMillimetres = value },
+            "ceiling" => space with { CeilingThicknessMillimetres = value },
+            _ => space,
+        };
+        _history.Execute(_document, new SetSpaceVolumeCommand(updated));
+        _dirty = true;
+        _statusMessage = $"Room {name} set to {value:0.###} mm";
+        SyncRoomEditors();
+    }
+
     private void DrawProjectAnalysis(SoftwareCanvas canvas, int inspectorX)
     {
         ProjectAnalysis analysis = ProjectAnalyzer.Analyze(_document);
@@ -1283,11 +1426,16 @@ internal sealed class EutherWireApplication : IForgeApplication
         double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) &&
         double.IsFinite(value) && value >= 0;
 
+    private static bool TryParsePositive(string text, out double value) =>
+        double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) &&
+        double.IsFinite(value) && value > 0;
+
     private static RectI ButtonRect(int inspectorX, int index) =>
         new(inspectorX + 18 + index * 78, 146, 68, 32);
 
     private static RectI ExportPngRect(int inspectorX) => new(inspectorX + 18, 190, 68, 30);
     private static RectI ViewToggleRect(int inspectorX) => new(inspectorX + 96, 190, 68, 30);
+    private static RectI SurfaceRect(int inspectorX) => new(inspectorX + 174, 190, 88, 30);
 
     private static RectI FinishRect(int inspectorX) => new(inspectorX + 18, 260, 104, 32);
     private static RectI CancelRect(int inspectorX) => new(inspectorX + 134, 260, 104, 32);
@@ -1328,11 +1476,28 @@ internal sealed class EutherWireApplication : IForgeApplication
         _ => "?",
     };
 
+    private static string SurfaceLabel(MountingSurface surface) => surface switch
+    {
+        MountingSurface.FloorInterior => "FLOOR",
+        MountingSurface.CeilingInterior => "CEIL-IN",
+        MountingSurface.CeilingExterior => "CEIL-OUT",
+        MountingSurface.NorthWallInterior => "N-IN",
+        MountingSurface.NorthWallExterior => "N-OUT",
+        MountingSurface.SouthWallInterior => "S-IN",
+        MountingSurface.SouthWallExterior => "S-OUT",
+        MountingSurface.WestWallInterior => "W-IN",
+        MountingSurface.WestWallExterior => "W-OUT",
+        MountingSurface.EastWallInterior => "E-IN",
+        MountingSurface.EastWallExterior => "E-OUT",
+        _ => "FREE",
+    };
+
     private static (double Width, double Height, uint Color) DeviceStyle(DeviceKind kind) => kind switch
     {
         DeviceKind.DistributionBoard => (1500, 900, 0xffd7a84a),
         DeviceKind.PoeSwitch => (1300, 700, 0xff4aa6d7),
         DeviceKind.Camera => (700, 500, 0xff64c987),
+        DeviceKind.Light => (600, 600, 0xffffd46a),
         _ => (800, 600, 0xffb4c0c8),
     };
 
@@ -1346,7 +1511,12 @@ internal sealed class EutherWireApplication : IForgeApplication
         _ => 0xffd7e0e5,
     };
 
-    private Device CreatePlacedDevice(ObjectId id, Point2 position, int number)
+    private Device CreatePlacedDevice(
+        ObjectId id,
+        Point2 position,
+        int number,
+        double elevationMillimetres,
+        MountingSurface mountingSurface)
     {
         (string prefix, Port[] ports) = _placementKind switch
         {
@@ -1355,9 +1525,10 @@ internal sealed class EutherWireApplication : IForgeApplication
             DeviceKind.Camera => ("KAM", new[] { new Port("eth0", PortKind.EthernetPoe, new Point2(-350, 0)) }),
             DeviceKind.PoeSwitch => ("POE-SW", new[] { new Port("uplink", PortKind.Ethernet, new Point2(-650, 0)), new Port("port-1", PortKind.EthernetPoe, new Point2(0, -350)) }),
             DeviceKind.AccessPoint => ("AP", new[] { new Port("eth0", PortKind.EthernetPoe, new Point2(0, 300)) }),
+            DeviceKind.Light => ("LAMPA", new[] { new Port("power", PortKind.MainsPower, new Point2(0, 0)) }),
             _ => ("DOSA", new[] { new Port("generic", PortKind.Generic, new Point2(0, 0)) }),
         };
-        return new Device(id, _placementKind, position, $"{prefix}-{number:00}", ports);
+        return new Device(id, _placementKind, position, $"{prefix}-{number:00}", ports, elevationMillimetres, mountingSurface);
     }
 
     private static readonly DeviceKind[] PlacementKinds =
@@ -1368,6 +1539,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         DeviceKind.Camera,
         DeviceKind.PoeSwitch,
         DeviceKind.AccessPoint,
+        DeviceKind.Light,
     ];
 
     private static string SymbolLabel(DeviceKind kind) => kind switch
@@ -1378,6 +1550,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         DeviceKind.Camera => "KAMERA",
         DeviceKind.PoeSwitch => "POE-SW",
         DeviceKind.AccessPoint => "AP",
+        DeviceKind.Light => "LAMPA",
         _ => kind.ToString().ToUpperInvariant(),
     };
 

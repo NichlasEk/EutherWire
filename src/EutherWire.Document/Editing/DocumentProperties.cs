@@ -46,11 +46,18 @@ public static class DocumentProperties
     {
         ArgumentNullException.ThrowIfNull(document);
         var properties = new List<DocumentProperty>();
+        ObjectId spaceId = ObjectId.Parse("space");
+        properties.Add(Number(spaceId, "width_mm", document.Space.WidthMillimetres));
+        properties.Add(Number(spaceId, "depth_mm", document.Space.DepthMillimetres));
+        properties.Add(Number(spaceId, "height_mm", document.Space.HeightMillimetres));
+        properties.Add(Number(spaceId, "wall_thickness_mm", document.Space.WallThicknessMillimetres));
+        properties.Add(Number(spaceId, "ceiling_thickness_mm", document.Space.CeilingThicknessMillimetres));
         foreach (Device device in document.Devices.Values)
         {
             properties.Add(Text(device.Id, "label", device.Label));
             properties.Add(Choice(device.Id, "kind", device.Kind));
             properties.Add(Number(device.Id, "elevation_mm", device.ElevationMillimetres));
+            properties.Add(Choice(device.Id, "mounting_surface", device.MountingSurface));
         }
         foreach (CableRoute cable in document.Cables.Values)
         {
@@ -93,6 +100,8 @@ public static class DocumentProperties
                 new SetCableKindCommand(id.ObjectId, ParseChoice<CableKind>(value)),
             "elevation_mm" when document.Devices.ContainsKey(id.ObjectId) =>
                 new SetDeviceElevationCommand(id.ObjectId, ParseNonNegative(value)),
+            "mounting_surface" when document.Devices.ContainsKey(id.ObjectId) =>
+                new SetDeviceMountingSurfaceCommand(id.ObjectId, ParseChoice<MountingSurface>(value)),
             "installation_status" => new SetCableInstallationCommand(
                 id.ObjectId,
                 ParseChoice<InstallationStatus>(value),
@@ -106,6 +115,7 @@ public static class DocumentProperties
                 double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture)),
             _ when TryParseVertexElevation(id.Name, out int vertexIndex) =>
                 new SetRouteVertexElevationCommand(id.ObjectId, vertexIndex, ParseNonNegative(value)),
+            _ when id.ObjectId == ObjectId.Parse("space") => CreateSpaceCommand(document, id.Name, value),
             _ => throw new InvalidOperationException($"Property handle '{id}' is not writable."),
         };
     }
@@ -138,6 +148,29 @@ public static class DocumentProperties
     {
         double number = double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture);
         if (!double.IsFinite(number) || number < 0) throw new ArgumentOutOfRangeException(nameof(value));
+        return number;
+    }
+
+    private static IDocumentCommand CreateSpaceCommand(ProjectDocument document, string name, string value)
+    {
+        double number = ParsePositive(value);
+        SpaceVolume space = document.Space;
+        SpaceVolume changed = name switch
+        {
+            "width_mm" => space with { WidthMillimetres = number },
+            "depth_mm" => space with { DepthMillimetres = number },
+            "height_mm" => space with { HeightMillimetres = number },
+            "wall_thickness_mm" => space with { WallThicknessMillimetres = number },
+            "ceiling_thickness_mm" => space with { CeilingThicknessMillimetres = number },
+            _ => throw new InvalidOperationException($"Unknown space property '{name}'."),
+        };
+        return new SetSpaceVolumeCommand(changed);
+    }
+
+    private static double ParsePositive(string value)
+    {
+        double number = ParseNonNegative(value);
+        if (number == 0) throw new ArgumentOutOfRangeException(nameof(value));
         return number;
     }
 

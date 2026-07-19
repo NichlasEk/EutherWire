@@ -34,9 +34,12 @@ To open the editable Garage Draft directly in the 3D installation view:
 ./eutherwire.sh 3d
 ```
 
-Use the `PLAN`/`3D` control to switch views. The current 3D drawing plane is
-the floor; devices and routes already retain real elevations, while direct
-wall and ceiling drawing is the next slice. See
+Use the `PLAN`/`3D` control to switch views. In 3D, the button beside it cycles
+through the floor, inner/outer ceiling, and every inner/outer wall. The yellow
+outline is the active drawing surface. Choose `DEV` to place a box or lamp on
+it, or `WIRE`/`PIPE` to route directly on it. With nothing selected, the right
+panel edits room width, depth, height, wall thickness, and ceiling thickness.
+See
 [docs/garage-3d-plan.md](docs/garage-3d-plan.md).
 
 This initializes WaylandForge if needed, builds the solution, and opens a

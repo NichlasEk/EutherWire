@@ -212,6 +212,40 @@ public sealed class SetDeviceElevationCommand(ObjectId deviceId, double elevatio
         document.RequireDevice(deviceId).ElevationMillimetres = _previous ?? throw new InvalidOperationException("Command has not been applied.");
 }
 
+public sealed class SetDeviceMountingSurfaceCommand(ObjectId deviceId, MountingSurface surface) : IDocumentCommand
+{
+    private MountingSurface? _previous;
+
+    public string Description => $"Set {deviceId} mounting surface";
+
+    public void Apply(ProjectDocument document)
+    {
+        Device device = document.RequireDevice(deviceId);
+        _previous ??= device.MountingSurface;
+        device.MountingSurface = surface;
+    }
+
+    public void Undo(ProjectDocument document) =>
+        document.RequireDevice(deviceId).MountingSurface = _previous ?? throw new InvalidOperationException("Command has not been applied.");
+}
+
+public sealed class SetSpaceVolumeCommand(SpaceVolume volume) : IDocumentCommand
+{
+    private SpaceVolume? _previous;
+
+    public string Description => "Set room dimensions";
+
+    public void Apply(ProjectDocument document)
+    {
+        volume.Validate();
+        _previous ??= document.Space;
+        document.Space = volume;
+    }
+
+    public void Undo(ProjectDocument document) =>
+        document.Space = _previous ?? throw new InvalidOperationException("Command has not been applied.");
+}
+
 public sealed class SetCableKindCommand(ObjectId cableId, CableKind kind) : IDocumentCommand
 {
     private CableKind? _previous;

@@ -28,6 +28,8 @@ public static class ProjectToml
                 WidthMillimetres = document.Space.WidthMillimetres,
                 DepthMillimetres = document.Space.DepthMillimetres,
                 HeightMillimetres = document.Space.HeightMillimetres,
+                WallThicknessMillimetres = document.Space.WallThicknessMillimetres,
+                CeilingThicknessMillimetres = document.Space.CeilingThicknessMillimetres,
             },
             Devices = document.Devices.Values
                 .OrderBy(device => device.Id.Value, StringComparer.Ordinal)
@@ -71,9 +73,9 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion is < 1 or > 3)
+        if (file.Project.SchemaVersion is < 1 or > 4)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1, 2, or 3.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 4.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
@@ -92,7 +94,9 @@ public static class ProjectToml
                 Point(file.Space.Origin, "space.origin"),
                 Positive(file.Space.WidthMillimetres, "space.width_mm"),
                 Positive(file.Space.DepthMillimetres, "space.depth_mm"),
-                Positive(file.Space.HeightMillimetres, "space.height_mm")).Validate();
+                Positive(file.Space.HeightMillimetres, "space.height_mm"),
+                Positive(file.Space.WallThicknessMillimetres, "space.wall_thickness_mm"),
+                Positive(file.Space.CeilingThicknessMillimetres, "space.ceiling_thickness_mm")).Validate();
         }
         foreach (DeviceFile source in file.Devices)
         {
@@ -109,6 +113,7 @@ public static class ProjectToml
             {
                 RotationDegrees = source.RotationDegrees,
                 ElevationMillimetres = NonNegative(source.ElevationMillimetres, $"devices[{source.Id}].elevation_mm"),
+                MountingSurface = ParseEnum<MountingSurface>(source.MountingSurface, "mounting surface"),
             };
             document.Add(device);
         }
@@ -169,6 +174,7 @@ public static class ProjectToml
         Position = [device.Position.X, device.Position.Y],
         RotationDegrees = device.RotationDegrees,
         ElevationMillimetres = device.ElevationMillimetres,
+        MountingSurface = Name(device.MountingSurface),
         Ports = device.Ports.Select(port => new PortFile
         {
             Id = port.Id,
@@ -381,6 +387,12 @@ public static class ProjectToml
 
         [JsonPropertyName("height_mm")]
         public double HeightMillimetres { get; set; }
+
+        [JsonPropertyName("wall_thickness_mm")]
+        public double WallThicknessMillimetres { get; set; } = 200;
+
+        [JsonPropertyName("ceiling_thickness_mm")]
+        public double CeilingThicknessMillimetres { get; set; } = 250;
     }
 
     private sealed class ProjectMetadata
@@ -420,6 +432,9 @@ public static class ProjectToml
 
         [JsonPropertyName("elevation_mm")]
         public double ElevationMillimetres { get; set; }
+
+        [JsonPropertyName("mounting_surface")]
+        public string MountingSurface { get; set; } = "free";
 
         [JsonPropertyName("ports")]
         public List<PortFile> Ports { get; set; } = [];

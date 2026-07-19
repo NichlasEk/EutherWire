@@ -73,8 +73,10 @@ ObjectId sourceId = ObjectId.Parse("source");
 ObjectId targetId = ObjectId.Parse("target");
 ObjectId pipeId = ObjectId.Parse("pipe");
 ObjectId cableId = ObjectId.Parse("cable");
+ObjectId lightId = ObjectId.Parse("ceiling-light");
 wired.Add(new Device(sourceId, DeviceKind.PoeSwitch, new Point2(0, 0), "SOURCE", [new Port("out", PortKind.EthernetPoe, new Point2(0, 0))]));
 wired.Add(new Device(targetId, DeviceKind.Camera, new Point2(2000, 0), "TARGET", [new Port("in", PortKind.EthernetPoe, new Point2(0, 0))]));
+wired.Add(new Device(lightId, DeviceKind.Light, new Point2(1000, 1000), "CEILING LIGHT", [new Port("power", PortKind.MainsPower, new Point2(0, 0))], 2800, MountingSurface.CeilingInterior));
 var connectedRoute = new Polyline([new Point2(0, 0), new Point2(1000, 0), new Point2(2000, 0)]);
 wired.Add(new Conduit(pipeId, "PIPE", 25, connectedRoute));
 wired.Add(new CableRoute(
@@ -163,6 +165,7 @@ Require(connectedHistory.Redo(wired), "Planning margins must be redoable.");
 connectedHistory.Execute(wired, new SetCableInstallationCommand(cableId, InstallationStatus.Tested, 2350));
 Require(wired.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "Installation state must be stored on its cable.");
 Require(wired.RequireCable(cableId).ActualLengthMillimetres == 2350, "Actual installed cable length must be preserved.");
+connectedHistory.Execute(wired, new SetSpaceVolumeCommand(wired.Space with { WallThicknessMillimetres = 180, CeilingThicknessMillimetres = 300 }));
 
 string serialized = ProjectToml.Serialize(wired);
 ProjectDocument loaded = ProjectToml.Deserialize(serialized);
@@ -171,9 +174,11 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
-Require(loaded.SchemaVersion == 3 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.SchemaVersion == 4 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
 Require(loaded.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "TOML must preserve installation state.");
 Require(loaded.RequireCable(cableId).ActualLengthMillimetres == 2350, "TOML must preserve actual installed length.");
+Require(loaded.Space.WallThicknessMillimetres == 180 && loaded.Space.CeilingThicknessMillimetres == 300, "TOML must preserve wall and ceiling construction thickness.");
+Require(loaded.RequireDevice(lightId).ElevationMillimetres == 2800 && loaded.RequireDevice(lightId).MountingSurface == MountingSurface.CeilingInterior, "TOML must preserve a light mounted on the interior ceiling.");
 
 string dangling = serialized.Replace("target:in", "missing:in", StringComparison.Ordinal);
 try
@@ -207,6 +212,9 @@ IReadOnlyList<DocumentProperty> garageProperties = DocumentProperties.Enumerate(
 Require(garageProperties.Any(property => property.Id == statusPropertyId && property.Value == "planned"), "Objects need stable semantic property handles.");
 Require(garageProperties.Any(property => property.Id.ToString() == "camera-north-pipe:property:inner_diameter_mm"), "Conduit dimensions need property handles.");
 Require(garageProperties.Any(property => property.Id.ToString() == "camera-north:property:elevation_mm" && property.Value == "2200"), "Device elevation needs a property handle.");
+Require(garageProperties.Any(property => property.Id.ToString() == "camera-north:property:mounting_surface"), "Devices need a semantic mounting-surface handle.");
+PropertyHandleId roomWidthId = PropertyHandleId.Parse("space:property:width_mm");
+Require(garageProperties.Any(property => property.Id == roomWidthId && property.Value == "14000"), "Room dimensions need stable property handles.");
 PropertyHandleId routeElevationId = PropertyHandleId.Parse("camera-north-pipe:property:vertex_1_elevation_mm");
 Require(garageProperties.Any(property => property.Id == routeElevationId && property.Value == "2200"), "Every route vertex needs a stable elevation property handle.");
 var propertyHistory = new CommandHistory();
@@ -221,6 +229,13 @@ Require(propertyHistory.Undo(garageDocument), "Route elevation edits must be und
 propertyHistory.Execute(garageDocument, new DeleteRouteVertexCommand(ObjectId.Parse("camera-north-pipe"), 1));
 Require(propertyHistory.Undo(garageDocument), "Deleted 3D route vertices must be undoable.");
 Require(garageDocument.RequireConduit(ObjectId.Parse("camera-north-pipe")).Route.SpatialPoints[1].Z == 2200, "Undo must restore the exact route vertex elevation.");
+propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, roomWidthId, "15000"));
+Require(garageDocument.Space.WidthMillimetres == 15000, "Room size properties must edit the real space volume.");
+Require(propertyHistory.Undo(garageDocument) && garageDocument.Space == SpaceVolume.GarageDefault, "Room dimension changes must be undoable.");
+PropertyHandleId mountingSurfaceId = PropertyHandleId.Parse("camera-north:property:mounting_surface");
+propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, mountingSurfaceId, "north_wall_exterior"));
+Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).MountingSurface == MountingSurface.NorthWallExterior, "Mounting-surface handles must attach devices to named building surfaces.");
+Require(propertyHistory.Undo(garageDocument), "Mounting-surface changes must be undoable.");
 var missingMeasurementHistory = new CommandHistory();
 missingMeasurementHistory.Execute(garageDocument, new SetCableInstallationCommand(ObjectId.Parse("camera-north-cat6"), InstallationStatus.Installed, null));
 ProjectAnalysis missingMeasurement = ProjectAnalyzer.Analyze(garageDocument);

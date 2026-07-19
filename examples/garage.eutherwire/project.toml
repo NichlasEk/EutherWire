@@ -2,7 +2,7 @@ annotations = []
 [project]
 name = "Garage Draft"
 units = "mm"
-schema_version = 3
+schema_version = 4
 cable_slack_percent = 10.0
 service_loop_mm = 1000.0
 [space]
@@ -10,6 +10,8 @@ origin = [-1500.0, -3500.0]
 width_mm = 14000.0
 depth_mm = 6000.0
 height_mm = 2800.0
+wall_thickness_mm = 200.0
+ceiling_thickness_mm = 250.0
 [[devices]]
 id = "camera-north"
 kind = "camera"
@@ -17,6 +19,7 @@ label = "KAM-N"
 position = [11200.0, -2600.0]
 rotation_degrees = 0.0
 elevation_mm = 2200.0
+mounting_surface = "free"
 [[devices.ports]]
 id = "eth0"
 kind = "ethernet_poe"
@@ -29,6 +32,7 @@ label = "CENTRAL"
 position = [0.0, 0.0]
 rotation_degrees = 0.0
 elevation_mm = 1000.0
+mounting_surface = "free"
 [[devices.ports]]
 id = "garage-feed"
 kind = "mains_power"
@@ -41,6 +45,7 @@ label = "POE-SW"
 position = [6500.0, 800.0]
 rotation_degrees = 0.0
 elevation_mm = 2200.0
+mounting_surface = "free"
 [[devices.ports]]
 id = "uplink"
 kind = "ethernet"

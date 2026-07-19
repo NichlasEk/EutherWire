@@ -19,16 +19,25 @@ The intended workflow is:
 
 ## Implemented foundation
 
-- Project schema 3 stores a `SpaceVolume` with origin, width, depth, and height.
+- Project schema 4 stores a `SpaceVolume` with origin, width, depth, height,
+  wall thickness, and ceiling thickness.
+- Room dimensions are editable in the 3D inspector and through stable property
+  handles; edits use the shared undo/redo command history.
 - Devices store a mounting elevation in millimetres.
+- Devices store a named mounting surface: floor, inner/outer ceiling, or one
+  of the four inner/outer walls.
 - Every cable and conduit vertex stores X, Y, and Z.
 - Route lengths include vertical distance.
 - Device and route elevations have stable semantic property handles.
 - Contained cable geometry follows its conduit in all three dimensions.
 - The desktop can switch between PLAN and an isometric 3D garage view.
+- The renderer shows distinct inner and outer wall shells and the ceiling slab.
+- The active mounting surface has a yellow 3D outline.
 - Existing devices and elevated routes render inside the garage shell.
 - Selection and ordinary X/Y handles work in both views.
-- DEV, WIRE, PIPE, and TEXT can currently draw on the 3D floor plane.
+- DEV, WIRE, and PIPE draw on the selected 3D surface with surface-local
+  snapping. The symbol palette includes ceiling lights as well as boxes,
+  outlets, central equipment, cameras, switches, and access points.
 - `./eutherwire.sh 3d` creates and opens a safe writable 3D Garage Draft.
 
 The current renderer is deliberately a clear technical installation view, not
@@ -36,19 +45,6 @@ a photorealistic game renderer. It uses WaylandForge's deterministic software
 canvas and remains useful on systems without a GPU API configured.
 
 ## Next 3D slices
-
-### Surface drawing
-
-Add an explicit active surface:
-
-- floor;
-- north, south, east, or west wall;
-- ceiling;
-- custom measured plane later.
-
-Pointer-to-document conversion will raycast onto that plane. The status bar
-must always name the active surface so a click cannot silently place an object
-on the wrong wall.
 
 ### Height and surface handles
 
