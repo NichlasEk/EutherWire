@@ -202,6 +202,11 @@ measured installed length.
 - autosave journal and crash recovery;
 - local-agent editing through the versioned project format.
 
+The 3D garage has moved forward from a later visualization idea into an active
+product track. Schema 3, spatial route vertices, device elevations, garage
+volume, and the first editable isometric view are described in
+[garage-3d-plan.md](garage-3d-plan.md).
+
 ## Mobile installation mode
 
 Mobile is a first-class field workflow over the same project model, not a

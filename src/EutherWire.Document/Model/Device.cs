@@ -49,6 +49,7 @@ public sealed class Device
     public DeviceKind Kind { get; internal set; }
     public Point2 Position { get; internal set; }
     public double RotationDegrees { get; internal set; }
+    public double ElevationMillimetres { get; internal set; }
     public string Label { get; set; }
     public List<Port> Ports { get; }
 }

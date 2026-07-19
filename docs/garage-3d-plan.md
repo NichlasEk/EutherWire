@@ -1,0 +1,92 @@
+# EutherWire garage 3D plan
+
+Date: 2026-07-19
+
+## Product direction
+
+The 3D garage is an editing view over the same installation document as the
+plan view. A camera, conduit, or cable must never be copied into a separate 3D
+file that can drift away from the drawing.
+
+The intended workflow is:
+
+1. define or measure the garage volume;
+2. choose floor, wall, or ceiling as the active drawing surface;
+3. place boxes, devices, and penetrations directly on that surface;
+4. route conduit and cable in 3D with X/Y/Z vertex handles;
+5. switch to plan view for printable documentation;
+6. use installation mode on mobile to measure and confirm the same objects.
+
+## Implemented foundation
+
+- Project schema 3 stores a `SpaceVolume` with origin, width, depth, and height.
+- Devices store a mounting elevation in millimetres.
+- Every cable and conduit vertex stores X, Y, and Z.
+- Route lengths include vertical distance.
+- Device and route elevations have stable semantic property handles.
+- Contained cable geometry follows its conduit in all three dimensions.
+- The desktop can switch between PLAN and an isometric 3D garage view.
+- Existing devices and elevated routes render inside the garage shell.
+- Selection and ordinary X/Y handles work in both views.
+- DEV, WIRE, PIPE, and TEXT can currently draw on the 3D floor plane.
+- `./eutherwire.sh 3d` creates and opens a safe writable 3D Garage Draft.
+
+The current renderer is deliberately a clear technical installation view, not
+a photorealistic game renderer. It uses WaylandForge's deterministic software
+canvas and remains useful on systems without a GPU API configured.
+
+## Next 3D slices
+
+### Surface drawing
+
+Add an explicit active surface:
+
+- floor;
+- north, south, east, or west wall;
+- ceiling;
+- custom measured plane later.
+
+Pointer-to-document conversion will raycast onto that plane. The status bar
+must always name the active surface so a click cannot silently place an object
+on the wrong wall.
+
+### Height and surface handles
+
+- vertical Z handle on devices;
+- vertical Z handle on every route vertex;
+- wall-local horizontal and vertical handles;
+- snap to floor, ceiling, corners, existing routes, ports, and configured
+  installation heights;
+- numeric inspector entry for exact X/Y/Z.
+
+All of these remain command-based and addressable without screen coordinates.
+
+### Garage geometry
+
+- doors, windows, beams, pillars, workbench, and vehicle clearance volumes;
+- imported measured floor plan as a calibration layer;
+- wall openings and cable penetrations as first-class objects;
+- collision and clearance diagnostics;
+- translucent wall hiding so routes behind a wall remain understandable.
+
+### Camera navigation
+
+- orbit around pointer or selected object;
+- pan and zoom in 3D;
+- front, rear, left, right, top, and selected-surface presets;
+- section box for inspecting concealed routes;
+- saved named viewpoints for installation photos and documentation.
+
+### Mobile installation mode
+
+The phone view will consume the same 3D coordinates. Selecting a wall or
+scanning an object label can show height, offsets from corners, route direction,
+actual cable length, status, and attached field photos without translating from
+a second drawing.
+
+## Acceptance target
+
+The first complete 3D milestone is reached when a user can create a garage,
+place a camera on a wall at an exact height, route a conduit along wall and
+ceiling with a vertical drop, reopen the project without geometry drift, and
+produce matching plan, 3D, SVG, and PNG documentation from the same objects.

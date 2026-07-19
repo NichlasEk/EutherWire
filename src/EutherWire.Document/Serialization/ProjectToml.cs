@@ -22,6 +22,13 @@ public static class ProjectToml
                 CableSlackPercent = document.Planning.CableSlackPercent,
                 ServiceLoopMillimetres = document.Planning.ServiceLoopMillimetres,
             },
+            Space = new SpaceFile
+            {
+                Origin = [document.Space.Origin.X, document.Space.Origin.Y],
+                WidthMillimetres = document.Space.WidthMillimetres,
+                DepthMillimetres = document.Space.DepthMillimetres,
+                HeightMillimetres = document.Space.HeightMillimetres,
+            },
             Devices = document.Devices.Values
                 .OrderBy(device => device.Id.Value, StringComparer.Ordinal)
                 .Select(ToFile)
@@ -64,9 +71,9 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion is < 1 or > 2)
+        if (file.Project.SchemaVersion is < 1 or > 3)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 or 2.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1, 2, or 3.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
@@ -79,6 +86,14 @@ public static class ProjectToml
                 NonNegative(file.Project.CableSlackPercent, "project.cable_slack_percent", 100),
                 NonNegative(file.Project.ServiceLoopMillimetres, "project.service_loop_mm")),
         };
+        if (file.Space is not null)
+        {
+            document.Space = new SpaceVolume(
+                Point(file.Space.Origin, "space.origin"),
+                Positive(file.Space.WidthMillimetres, "space.width_mm"),
+                Positive(file.Space.DepthMillimetres, "space.depth_mm"),
+                Positive(file.Space.HeightMillimetres, "space.height_mm")).Validate();
+        }
         foreach (DeviceFile source in file.Devices)
         {
             var ports = source.Ports.Select(port => new Port(
@@ -93,6 +108,7 @@ public static class ProjectToml
                 ports)
             {
                 RotationDegrees = source.RotationDegrees,
+                ElevationMillimetres = NonNegative(source.ElevationMillimetres, $"devices[{source.Id}].elevation_mm"),
             };
             document.Add(device);
         }
@@ -152,6 +168,7 @@ public static class ProjectToml
         Label = device.Label,
         Position = [device.Position.X, device.Position.Y],
         RotationDegrees = device.RotationDegrees,
+        ElevationMillimetres = device.ElevationMillimetres,
         Ports = device.Ports.Select(port => new PortFile
         {
             Id = port.Id,
@@ -166,7 +183,7 @@ public static class ProjectToml
         Label = conduit.Label,
         InnerDiameterMillimetres = conduit.InnerDiameterMillimetres,
         InstallationMethod = Name(conduit.InstallationMethod),
-        Points = conduit.Route.Points.Select(point => new[] { point.X, point.Y }).ToList(),
+        Points = conduit.Route.SpatialPoints.Select(point => new[] { point.X, point.Y, point.Z }).ToList(),
     };
 
     private static CableFile ToFile(CableRoute cable) => new()
@@ -174,7 +191,7 @@ public static class ProjectToml
         Id = cable.Id.Value,
         Label = cable.Label,
         Kind = Name(cable.Kind),
-        Points = cable.Route.Points.Select(point => new[] { point.X, point.Y }).ToList(),
+        Points = cable.Route.SpatialPoints.Select(point => new[] { point.X, point.Y, point.Z }).ToList(),
         From = cable.From is PortReference from ? $"{from.DeviceId}:{from.PortId}" : null,
         To = cable.To is PortReference to ? $"{to.DeviceId}:{to.PortId}" : null,
         Conduit = cable.ConduitId?.Value,
@@ -262,12 +279,22 @@ public static class ProjectToml
     {
         try
         {
-            return new Polyline(points.Select((point, index) => Point(point, $"{field}[{index}]")));
+            return new Polyline(points.Select((point, index) => SpatialPoint(point, $"{field}[{index}]")));
         }
         catch (ArgumentException exception)
         {
             throw new ProjectFormatException($"Invalid polyline in {field}.", exception);
         }
+    }
+
+    private static Point3 SpatialPoint(IReadOnlyList<double> values, string field)
+    {
+        if (values.Count is not (2 or 3) || values.Any(value => !double.IsFinite(value)))
+        {
+            throw new ProjectFormatException($"{field} must contain two or three finite numbers.");
+        }
+        double elevation = values.Count == 3 ? NonNegative(values[2], $"{field}[2]") : 0;
+        return new Point3(values[0], values[1], elevation);
     }
 
     private static double Positive(double value, string field)
@@ -325,6 +352,9 @@ public static class ProjectToml
         [JsonPropertyName("project")]
         public ProjectMetadata? Project { get; set; }
 
+        [JsonPropertyName("space")]
+        public SpaceFile? Space { get; set; }
+
         [JsonPropertyName("devices")]
         public List<DeviceFile> Devices { get; set; } = [];
 
@@ -336,6 +366,21 @@ public static class ProjectToml
 
         [JsonPropertyName("annotations")]
         public List<AnnotationFile> Annotations { get; set; } = [];
+    }
+
+    private sealed class SpaceFile
+    {
+        [JsonPropertyName("origin")]
+        public double[] Origin { get; set; } = [];
+
+        [JsonPropertyName("width_mm")]
+        public double WidthMillimetres { get; set; }
+
+        [JsonPropertyName("depth_mm")]
+        public double DepthMillimetres { get; set; }
+
+        [JsonPropertyName("height_mm")]
+        public double HeightMillimetres { get; set; }
     }
 
     private sealed class ProjectMetadata
@@ -372,6 +417,9 @@ public static class ProjectToml
 
         [JsonPropertyName("rotation_degrees")]
         public double RotationDegrees { get; set; }
+
+        [JsonPropertyName("elevation_mm")]
+        public double ElevationMillimetres { get; set; }
 
         [JsonPropertyName("ports")]
         public List<PortFile> Ports { get; set; } = [];

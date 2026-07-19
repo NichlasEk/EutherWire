@@ -192,7 +192,27 @@ public static class DocumentHandleEditor
         throw new KeyNotFoundException($"Route '{routeId}' does not exist.");
     }
 
-    public static Point2 DeleteVertex(ProjectDocument document, ObjectId routeId, int index)
+    public static void InsertVertex(ProjectDocument document, ObjectId routeId, int index, Point3 position)
+    {
+        if (document.TryGetCable(routeId, out CableRoute? cable) && cable is not null)
+        {
+            if (cable.ConduitId is not null) throw new InvalidOperationException($"Cable '{routeId}' inherits vertices from conduit '{cable.ConduitId}'.");
+            document.Replace(cable with { Route = cable.Route.InsertPoint(index, position) });
+            return;
+        }
+        if (document.TryGetConduit(routeId, out Conduit? conduit) && conduit is not null)
+        {
+            document.Replace(conduit with { Route = conduit.Route.InsertPoint(index, position) });
+            foreach (CableRoute contained in document.Cables.Values.Where(item => item.ConduitId == routeId).ToArray())
+            {
+                document.Replace(contained with { Route = contained.Route.InsertPoint(index, position) });
+            }
+            return;
+        }
+        throw new KeyNotFoundException($"Route '{routeId}' does not exist.");
+    }
+
+    public static Point3 DeleteVertex(ProjectDocument document, ObjectId routeId, int index)
     {
         if (document.TryGetCable(routeId, out CableRoute? cable) && cable is not null)
         {
@@ -200,13 +220,13 @@ public static class DocumentHandleEditor
             {
                 throw new InvalidOperationException($"Cable '{routeId}' inherits vertices from conduit '{cable.ConduitId}'.");
             }
-            Point2 removed = cable.Route.Points[index];
+            Point3 removed = cable.Route.SpatialPoints[index];
             document.Replace(cable with { Route = cable.Route.RemovePoint(index) });
             return removed;
         }
         if (document.TryGetConduit(routeId, out Conduit? conduit) && conduit is not null)
         {
-            Point2 removed = conduit.Route.Points[index];
+            Point3 removed = conduit.Route.SpatialPoints[index];
             document.Replace(conduit with { Route = conduit.Route.RemovePoint(index) });
             foreach (CableRoute contained in document.Cables.Values.Where(item => item.ConduitId == routeId).ToArray())
             {

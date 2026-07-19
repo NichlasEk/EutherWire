@@ -28,12 +28,24 @@ The easiest safe test is:
 ./eutherwire.sh
 ```
 
+To open the editable Garage Draft directly in the 3D installation view:
+
+```sh
+./eutherwire.sh 3d
+```
+
+Use the `PLAN`/`3D` control to switch views. The current 3D drawing plane is
+the floor; devices and routes already retain real elevations, while direct
+wall and ceiling drawing is the next slice. See
+[docs/garage-3d-plan.md](docs/garage-3d-plan.md).
+
 This initializes WaylandForge if needed, builds the solution, and opens a
 writable Garage Draft under `.eutherwire-work/`. The tracked example is never
 modified. Other useful modes are:
 
 ```sh
 ./eutherwire.sh check
+./eutherwire.sh 3d
 ./eutherwire.sh report
 ./eutherwire.sh properties
 ./eutherwire.sh tasks

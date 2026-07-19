@@ -21,6 +21,8 @@ static void Require(bool condition, string message)
 
 var route = new Polyline([new Point2(0, 0), new Point2(3000, 4000), new Point2(6000, 4000)]);
 Require(route.LengthMillimetres == 8000, "Polyline length must use document millimetres.");
+var spatialRoute = new Polyline([new Point3(0, 0, 0), new Point3(3000, 4000, 12000)]);
+Require(spatialRoute.LengthMillimetres == 13000, "Polyline length must include vertical installation distance.");
 
 ObjectId cameraId = ObjectId.Parse("camera-north");
 var camera = new Device(
@@ -169,7 +171,7 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
-Require(loaded.SchemaVersion == 2 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.SchemaVersion == 3 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
 Require(loaded.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "TOML must preserve installation state.");
 Require(loaded.RequireCable(cableId).ActualLengthMillimetres == 2350, "TOML must preserve actual installed length.");
 
@@ -186,6 +188,9 @@ catch (ProjectFormatException exception)
 
 ProjectDocument garageDocument = ProjectTemplates.CreateGarageDraft();
 ProjectAnalysis garageAnalysis = ProjectAnalyzer.Analyze(garageDocument);
+Require(garageDocument.Space == SpaceVolume.GarageDefault, "Garage Draft needs a real editable 3D space volume.");
+Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).ElevationMillimetres == 2200, "Devices need installation elevation in 3D space.");
+Require(garageDocument.RequireConduit(ObjectId.Parse("camera-north-pipe")).Route.SpatialPoints.All(point => point.Z == 2200), "Routes need per-vertex 3D elevation.");
 Require(garageAnalysis.TotalCableLengthMillimetres == 7400, "Analysis must sum cable geometry in document millimetres.");
 Require(garageAnalysis.TotalConduitLengthMillimetres == 7400, "Analysis must sum conduit geometry.");
 Require(Math.Abs(garageAnalysis.RecommendedCableLengthMillimetres - 9140) < 0.001, "Cable orders need margin and a service loop.");
@@ -201,11 +206,21 @@ PropertyHandleId statusPropertyId = PropertyHandleId.Parse("camera-north-cat6:pr
 IReadOnlyList<DocumentProperty> garageProperties = DocumentProperties.Enumerate(garageDocument);
 Require(garageProperties.Any(property => property.Id == statusPropertyId && property.Value == "planned"), "Objects need stable semantic property handles.");
 Require(garageProperties.Any(property => property.Id.ToString() == "camera-north-pipe:property:inner_diameter_mm"), "Conduit dimensions need property handles.");
+Require(garageProperties.Any(property => property.Id.ToString() == "camera-north:property:elevation_mm" && property.Value == "2200"), "Device elevation needs a property handle.");
+PropertyHandleId routeElevationId = PropertyHandleId.Parse("camera-north-pipe:property:vertex_1_elevation_mm");
+Require(garageProperties.Any(property => property.Id == routeElevationId && property.Value == "2200"), "Every route vertex needs a stable elevation property handle.");
 var propertyHistory = new CommandHistory();
 propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, statusPropertyId, "tested"));
 Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).InstallationStatus == InstallationStatus.Tested, "Property handles must create real document commands.");
 Require(propertyHistory.Undo(garageDocument), "Property-handle edits must be undoable.");
 Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).InstallationStatus == InstallationStatus.Planned, "Property undo must restore the previous value.");
+propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, routeElevationId, "2500"));
+Require(garageDocument.RequireConduit(ObjectId.Parse("camera-north-pipe")).Route.SpatialPoints[1].Z == 2500, "Route elevation handles must edit 3D conduit geometry.");
+Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).Route.SpatialPoints[1].Z == 2500, "Contained cable elevation must follow its conduit.");
+Require(propertyHistory.Undo(garageDocument), "Route elevation edits must be undoable.");
+propertyHistory.Execute(garageDocument, new DeleteRouteVertexCommand(ObjectId.Parse("camera-north-pipe"), 1));
+Require(propertyHistory.Undo(garageDocument), "Deleted 3D route vertices must be undoable.");
+Require(garageDocument.RequireConduit(ObjectId.Parse("camera-north-pipe")).Route.SpatialPoints[1].Z == 2200, "Undo must restore the exact route vertex elevation.");
 var missingMeasurementHistory = new CommandHistory();
 missingMeasurementHistory.Execute(garageDocument, new SetCableInstallationCommand(ObjectId.Parse("camera-north-cat6"), InstallationStatus.Installed, null));
 ProjectAnalysis missingMeasurement = ProjectAnalyzer.Analyze(garageDocument);

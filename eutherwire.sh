@@ -7,6 +7,7 @@ EW_DOTNET="${DOTNET:-dotnet}"
 EW_EXAMPLE_PROJECT="$EW_REPO_DIR/examples/garage.eutherwire"
 EW_WORK_DIR="$EW_REPO_DIR/.eutherwire-work"
 EW_DEMO_PROJECT="$EW_WORK_DIR/garage-demo.eutherwire"
+EW_3D_DEMO_PROJECT="$EW_WORK_DIR/garage-3d-demo.eutherwire"
 
 say() {
     printf '\n==> %s\n' "$*"
@@ -24,6 +25,7 @@ EutherWire helper
 Usage:
   ./eutherwire.sh                 Build and open a safe, writable Garage Draft copy
   ./eutherwire.sh demo            Same as above; keeps edits between runs
+  ./eutherwire.sh 3d              Open a safe Garage Draft directly in 3D
   ./eutherwire.sh run PROJECT     Open an explicit .eutherwire project
   ./eutherwire.sh check           Build, run document checks, and analyze Garage Draft
   ./eutherwire.sh report [PROJECT]
@@ -76,9 +78,13 @@ require_wayland() {
 
 open_project() {
     local project="$1"
+    local mode="${2:-}"
     validate_project "$project"
     require_wayland
     say "Opening $project"
+    if [[ "$mode" == "--3d" ]]; then
+        exec "$EW_DOTNET" run --project src/EutherWire.App/EutherWire.App.csproj --no-build -- "$project" --3d
+    fi
     exec "$EW_DOTNET" run --project src/EutherWire.App/EutherWire.App.csproj --no-build -- "$project"
 }
 
@@ -99,6 +105,15 @@ case "$EW_COMMAND" in
             "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- create-demo "$EW_DEMO_PROJECT"
         fi
         open_project "$EW_DEMO_PROJECT"
+        ;;
+    3d)
+        build
+        if [[ ! -f "$EW_3D_DEMO_PROJECT/project.toml" ]]; then
+            say "Creating writable 3D Garage Draft demo"
+            mkdir -p -- "$EW_WORK_DIR"
+            "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- create-demo "$EW_3D_DEMO_PROJECT"
+        fi
+        open_project "$EW_3D_DEMO_PROJECT" --3d
         ;;
     run)
         [[ $# -ge 2 ]] || die "run requires a .eutherwire project path"

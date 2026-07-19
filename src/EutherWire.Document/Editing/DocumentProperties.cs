@@ -50,6 +50,7 @@ public static class DocumentProperties
         {
             properties.Add(Text(device.Id, "label", device.Label));
             properties.Add(Choice(device.Id, "kind", device.Kind));
+            properties.Add(Number(device.Id, "elevation_mm", device.ElevationMillimetres));
         }
         foreach (CableRoute cable in document.Cables.Values)
         {
@@ -60,6 +61,7 @@ public static class DocumentProperties
                 new PropertyHandleId(cable.Id, "actual_length_mm"),
                 PropertyValueKind.Number,
                 cable.ActualLengthMillimetres?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown"));
+            if (cable.ConduitId is null) AddVertexElevations(properties, cable.Id, cable.Route);
         }
         foreach (Conduit conduit in document.Conduits.Values)
         {
@@ -68,6 +70,7 @@ public static class DocumentProperties
                 new PropertyHandleId(conduit.Id, "inner_diameter_mm"),
                 PropertyValueKind.Number,
                 conduit.InnerDiameterMillimetres.ToString("0.###", CultureInfo.InvariantCulture)));
+            AddVertexElevations(properties, conduit.Id, conduit.Route);
         }
         foreach (Annotation annotation in document.Annotations.Values)
         {
@@ -88,6 +91,8 @@ public static class DocumentProperties
                 new SetDeviceKindCommand(id.ObjectId, ParseChoice<DeviceKind>(value)),
             "kind" when document.Cables.ContainsKey(id.ObjectId) =>
                 new SetCableKindCommand(id.ObjectId, ParseChoice<CableKind>(value)),
+            "elevation_mm" when document.Devices.ContainsKey(id.ObjectId) =>
+                new SetDeviceElevationCommand(id.ObjectId, ParseNonNegative(value)),
             "installation_status" => new SetCableInstallationCommand(
                 id.ObjectId,
                 ParseChoice<InstallationStatus>(value),
@@ -99,12 +104,42 @@ public static class DocumentProperties
             "inner_diameter_mm" => new SetConduitDiameterCommand(
                 id.ObjectId,
                 double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture)),
+            _ when TryParseVertexElevation(id.Name, out int vertexIndex) =>
+                new SetRouteVertexElevationCommand(id.ObjectId, vertexIndex, ParseNonNegative(value)),
             _ => throw new InvalidOperationException($"Property handle '{id}' is not writable."),
         };
     }
 
     private static DocumentProperty Text(ObjectId id, string name, string value) =>
         new(new PropertyHandleId(id, name), PropertyValueKind.Text, value);
+
+    private static DocumentProperty Number(ObjectId id, string name, double value) =>
+        new(new PropertyHandleId(id, name), PropertyValueKind.Number, value.ToString("0.###", CultureInfo.InvariantCulture));
+
+    private static void AddVertexElevations(List<DocumentProperty> properties, ObjectId id, EutherWire.Document.Geometry.Polyline route)
+    {
+        for (int index = 0; index < route.SpatialPoints.Count; index++)
+        {
+            properties.Add(Number(id, $"vertex_{index}_elevation_mm", route.SpatialPoints[index].Z));
+        }
+    }
+
+    private static bool TryParseVertexElevation(string name, out int index)
+    {
+        const string prefix = "vertex_";
+        const string suffix = "_elevation_mm";
+        index = -1;
+        return name.StartsWith(prefix, StringComparison.Ordinal) &&
+            name.EndsWith(suffix, StringComparison.Ordinal) &&
+            int.TryParse(name[prefix.Length..^suffix.Length], NumberStyles.None, CultureInfo.InvariantCulture, out index);
+    }
+
+    private static double ParseNonNegative(string value)
+    {
+        double number = double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture);
+        if (!double.IsFinite(number) || number < 0) throw new ArgumentOutOfRangeException(nameof(value));
+        return number;
+    }
 
     private static DocumentProperty Choice<T>(ObjectId id, string name, T value) where T : struct, Enum =>
         new(

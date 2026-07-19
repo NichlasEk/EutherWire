@@ -9,3 +9,9 @@ public readonly record struct Point2(double X, double Y)
 
 /// <summary>A displacement in document millimetres.</summary>
 public readonly record struct Vector2(double X, double Y);
+
+/// <summary>A position in installation space, in millimetres.</summary>
+public readonly record struct Point3(double X, double Y, double Z)
+{
+    public Point2 Plan => new(X, Y);
+}

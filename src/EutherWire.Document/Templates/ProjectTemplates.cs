@@ -13,7 +13,7 @@ public static class ProjectTemplates
             DeviceKind.DistributionBoard,
             new Point2(0, 0),
             "CENTRAL",
-            [new Port("garage-feed", PortKind.MainsPower, new Point2(750, 0))]));
+            [new Port("garage-feed", PortKind.MainsPower, new Point2(750, 0))]) { ElevationMillimetres = 1000 });
         document.Add(new Device(
             ObjectId.Parse("poe-switch"),
             DeviceKind.PoeSwitch,
@@ -22,15 +22,15 @@ public static class ProjectTemplates
             [
                 new Port("uplink", PortKind.Ethernet, new Point2(-650, 0)),
                 new Port("port-1", PortKind.EthernetPoe, new Point2(0, -350)),
-            ]));
+            ]) { ElevationMillimetres = 2200 });
         document.Add(new Device(
             ObjectId.Parse("camera-north"),
             DeviceKind.Camera,
             new Point2(11200, -2600),
             "KAM-N",
-            [new Port("eth0", PortKind.EthernetPoe, new Point2(-350, 0))]));
+            [new Port("eth0", PortKind.EthernetPoe, new Point2(-350, 0))]) { ElevationMillimetres = 2200 });
 
-        Point2[] route = [new(6500, 450), new(6500, -2600), new(10850, -2600)];
+        Point3[] route = [new(6500, 450, 2200), new(6500, -2600, 2200), new(10850, -2600, 2200)];
         ObjectId conduitId = ObjectId.Parse("camera-north-pipe");
         document.Add(new Conduit(
             conduitId,

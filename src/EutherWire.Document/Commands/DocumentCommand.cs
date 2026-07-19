@@ -194,6 +194,24 @@ public sealed class SetDeviceKindCommand(ObjectId deviceId, DeviceKind kind) : I
         document.RequireDevice(deviceId).Kind = _previous ?? throw new InvalidOperationException("Command has not been applied.");
 }
 
+public sealed class SetDeviceElevationCommand(ObjectId deviceId, double elevationMillimetres) : IDocumentCommand
+{
+    private double? _previous;
+
+    public string Description => $"Set {deviceId} elevation";
+
+    public void Apply(ProjectDocument document)
+    {
+        if (!double.IsFinite(elevationMillimetres) || elevationMillimetres < 0) throw new ArgumentOutOfRangeException(nameof(elevationMillimetres));
+        Device device = document.RequireDevice(deviceId);
+        _previous ??= device.ElevationMillimetres;
+        device.ElevationMillimetres = elevationMillimetres;
+    }
+
+    public void Undo(ProjectDocument document) =>
+        document.RequireDevice(deviceId).ElevationMillimetres = _previous ?? throw new InvalidOperationException("Command has not been applied.");
+}
+
 public sealed class SetCableKindCommand(ObjectId cableId, CableKind kind) : IDocumentCommand
 {
     private CableKind? _previous;
@@ -366,14 +384,14 @@ public sealed class InsertRouteVertexCommand(ObjectId routeId, int index, Point2
 
 public sealed class DeleteRouteVertexCommand(ObjectId routeId, int index) : IDocumentCommand
 {
-    private Point2 _removed;
+    private Point3 _removed;
     private bool _hasRemoved;
 
     public string Description => $"Delete {routeId}:vertex:{index}";
 
     public void Apply(ProjectDocument document)
     {
-        Point2 removed = DocumentHandleEditor.DeleteVertex(document, routeId, index);
+        Point3 removed = DocumentHandleEditor.DeleteVertex(document, routeId, index);
         if (!_hasRemoved)
         {
             _removed = removed;
@@ -388,6 +406,48 @@ public sealed class DeleteRouteVertexCommand(ObjectId routeId, int index) : IDoc
             throw new InvalidOperationException("Command has not been applied.");
         }
         DocumentHandleEditor.InsertVertex(document, routeId, index, _removed);
+    }
+}
+
+public sealed class SetRouteVertexElevationCommand(ObjectId routeId, int index, double elevationMillimetres) : IDocumentCommand
+{
+    private double? _previous;
+
+    public string Description => $"Set {routeId}:vertex:{index} elevation";
+
+    public void Apply(ProjectDocument document)
+    {
+        if (!double.IsFinite(elevationMillimetres) || elevationMillimetres < 0) throw new ArgumentOutOfRangeException(nameof(elevationMillimetres));
+        Polyline route = RequireRoute(document);
+        _previous ??= route.SpatialPoints[index].Z;
+        SetRoute(document, elevationMillimetres);
+    }
+
+    public void Undo(ProjectDocument document) =>
+        SetRoute(document, _previous ?? throw new InvalidOperationException("Command has not been applied."));
+
+    private Polyline RequireRoute(ProjectDocument document)
+    {
+        if (document.Conduits.TryGetValue(routeId, out Conduit? conduit)) return conduit.Route;
+        if (document.Cables.TryGetValue(routeId, out CableRoute? cable) && cable.ConduitId is null) return cable.Route;
+        throw new KeyNotFoundException($"Editable route '{routeId}' does not exist.");
+    }
+
+    private void SetRoute(ProjectDocument document, double elevation)
+    {
+        if (document.Conduits.TryGetValue(routeId, out Conduit? conduit))
+        {
+            Polyline route = conduit.Route.WithElevation(index, elevation);
+            document.Replace(conduit with { Route = route });
+            foreach (CableRoute cable in document.Cables.Values.Where(cable => cable.ConduitId == routeId).ToList())
+            {
+                document.Replace(cable with { Route = route });
+            }
+            return;
+        }
+        CableRoute standalone = document.RequireCable(routeId);
+        if (standalone.ConduitId is not null) throw new InvalidOperationException("Contained cable elevation is controlled by its conduit.");
+        document.Replace(standalone with { Route = standalone.Route.WithElevation(index, elevation) });
     }
 }
 

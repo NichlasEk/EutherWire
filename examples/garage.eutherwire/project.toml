@@ -1,15 +1,22 @@
+annotations = []
 [project]
 name = "Garage Draft"
 units = "mm"
-schema_version = 2
+schema_version = 3
 cable_slack_percent = 10.0
 service_loop_mm = 1000.0
+[space]
+origin = [-1500.0, -3500.0]
+width_mm = 14000.0
+depth_mm = 6000.0
+height_mm = 2800.0
 [[devices]]
 id = "camera-north"
 kind = "camera"
 label = "KAM-N"
 position = [11200.0, -2600.0]
 rotation_degrees = 0.0
+elevation_mm = 2200.0
 [[devices.ports]]
 id = "eth0"
 kind = "ethernet_poe"
@@ -21,6 +28,7 @@ kind = "distribution_board"
 label = "CENTRAL"
 position = [0.0, 0.0]
 rotation_degrees = 0.0
+elevation_mm = 1000.0
 [[devices.ports]]
 id = "garage-feed"
 kind = "mains_power"
@@ -32,6 +40,7 @@ kind = "poe_switch"
 label = "POE-SW"
 position = [6500.0, 800.0]
 rotation_degrees = 0.0
+elevation_mm = 2200.0
 [[devices.ports]]
 id = "uplink"
 kind = "ethernet"
@@ -46,12 +55,12 @@ id = "camera-north-pipe"
 label = "RÖR-R07"
 inner_diameter_mm = 25.0
 installation_method = "concealed"
-points = [[6500.0, 450.0], [6500.0, -2600.0], [10850.0, -2600.0]]
+points = [[6500.0, 450.0, 2200.0], [6500.0, -2600.0, 2200.0], [10850.0, -2600.0, 2200.0]]
 [[cables]]
 id = "camera-north-cat6"
 label = "KAM-N-CAT6"
 kind = "cat6"
-points = [[6500.0, 450.0], [6500.0, -2600.0], [10850.0, -2600.0]]
+points = [[6500.0, 450.0, 2200.0], [6500.0, -2600.0, 2200.0], [10850.0, -2600.0, 2200.0]]
 from = "poe-switch:port-1"
 to = "camera-north:eth0"
 conduit = "camera-north-pipe"
