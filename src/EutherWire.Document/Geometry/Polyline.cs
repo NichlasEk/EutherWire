@@ -30,6 +30,32 @@ public sealed class Polyline
         return new Polyline(points);
     }
 
+    public Polyline InsertPoint(int index, Point2 point)
+    {
+        if (index <= 0 || index >= _points.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), "A route vertex must be inserted between existing points.");
+        }
+        var points = new List<Point2>(_points);
+        points.Insert(index, point);
+        return new Polyline(points);
+    }
+
+    public Polyline RemovePoint(int index)
+    {
+        if (_points.Count <= 2)
+        {
+            throw new InvalidOperationException("A route must retain at least two points.");
+        }
+        if (index <= 0 || index >= _points.Count - 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), "Route endpoints cannot be removed.");
+        }
+        var points = new List<Point2>(_points);
+        points.RemoveAt(index);
+        return new Polyline(points);
+    }
+
     public double LengthMillimetres
     {
         get

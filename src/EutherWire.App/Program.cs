@@ -337,6 +337,16 @@ internal sealed class EutherWireApplication : IForgeApplication
                 SetConduitDiameter(conduit, 1);
                 return true;
             }
+            if (AddVertexRect(inspectorX).Contains(pointer.X, pointer.Y) && TryGetEditableRoute(selected, out Polyline? addRoute))
+            {
+                AddRouteVertex(selected, addRoute!);
+                return true;
+            }
+            if (DeleteVertexRect(inspectorX).Contains(pointer.X, pointer.Y) && TryGetEditableRoute(selected, out Polyline? deleteRoute))
+            {
+                DeleteRouteVertex(selected, deleteRoute!);
+                return true;
+            }
         }
         if (ButtonRect(inspectorX, 0).Contains(pointer.X, pointer.Y))
         {
@@ -401,6 +411,58 @@ internal sealed class EutherWireApplication : IForgeApplication
         _history.Execute(_document, new SetConduitDiameterCommand(conduit.Id, diameters[index]));
         _dirty = true;
         _statusMessage = $"Conduit diameter: {diameters[index]} mm";
+    }
+
+    private bool TryGetEditableRoute(ObjectId id, out Polyline? route)
+    {
+        if (_document.Conduits.TryGetValue(id, out Conduit? conduit))
+        {
+            route = conduit.Route;
+            return true;
+        }
+        if (_document.Cables.TryGetValue(id, out CableRoute? cable) && cable.ConduitId is null)
+        {
+            route = cable.Route;
+            return true;
+        }
+        route = null;
+        return false;
+    }
+
+    private void AddRouteVertex(ObjectId routeId, Polyline route)
+    {
+        int segment = 0;
+        double longest = -1;
+        for (int index = 1; index < route.Points.Count; index++)
+        {
+            double dx = route.Points[index].X - route.Points[index - 1].X;
+            double dy = route.Points[index].Y - route.Points[index - 1].Y;
+            double length = dx * dx + dy * dy;
+            if (length > longest)
+            {
+                longest = length;
+                segment = index;
+            }
+        }
+        Point2 before = route.Points[segment - 1];
+        Point2 after = route.Points[segment];
+        var midpoint = new Point2((before.X + after.X) / 2, (before.Y + after.Y) / 2);
+        _history.Execute(_document, new InsertRouteVertexCommand(routeId, segment, midpoint));
+        _dirty = true;
+        _statusMessage = $"Inserted {routeId}:vertex:{segment}";
+    }
+
+    private void DeleteRouteVertex(ObjectId routeId, Polyline route)
+    {
+        if (route.Points.Count <= 2)
+        {
+            _statusMessage = "A route must retain at least two points";
+            return;
+        }
+        int index = route.Points.Count - 2;
+        _history.Execute(_document, new DeleteRouteVertexCommand(routeId, index));
+        _dirty = true;
+        _statusMessage = $"Deleted {routeId}:vertex:{index}";
     }
 
     private void FinishDraft()
@@ -884,6 +946,11 @@ internal sealed class EutherWireApplication : IForgeApplication
             DrawChromeButton(canvas, PropertyMinusRect(inspectorX), "-", true);
             DrawChromeButton(canvas, PropertyPlusRect(inspectorX), "+", true);
         }
+        if (TryGetEditableRoute(selected, out Polyline? route))
+        {
+            DrawChromeButton(canvas, AddVertexRect(inspectorX), "+ POINT", true);
+            DrawChromeButton(canvas, DeleteVertexRect(inspectorX), "- POINT", route!.Points.Count > 2);
+        }
     }
 
     private static RectI ButtonRect(int inspectorX, int index) =>
@@ -894,6 +961,8 @@ internal sealed class EutherWireApplication : IForgeApplication
     private static RectI DeleteRect(int inspectorX) => new(inspectorX + 18, 316, 104, 30);
     private static RectI PropertyMinusRect(int inspectorX) => new(inspectorX + 18, 374, 48, 30);
     private static RectI PropertyPlusRect(int inspectorX) => new(inspectorX + 76, 374, 48, 30);
+    private static RectI AddVertexRect(int inspectorX) => new(inspectorX + 18, 418, 104, 30);
+    private static RectI DeleteVertexRect(int inspectorX) => new(inspectorX + 134, 418, 104, 30);
     private static RectI SymbolRect(int inspectorX, int index) =>
         new(inspectorX + 18 + index % 2 * 112, 282 + index / 2 * 42, 102, 32);
 

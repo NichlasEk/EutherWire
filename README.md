@@ -40,6 +40,8 @@ The CLI uses the same semantic handles as the UI:
 dotnet run --project src/EutherWire.Cli -- handles examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- move examples/garage.eutherwire camera-north-pipe:vertex:1 7000 -3000
 dotnet run --project src/EutherWire.Cli -- validate examples/garage.eutherwire
+dotnet run --project src/EutherWire.Cli -- insert-vertex examples/garage.eutherwire camera-north-pipe 1 6500 -1000
+dotnet run --project src/EutherWire.Cli -- delete-vertex examples/garage.eutherwire camera-north-pipe 1
 ```
 
 `project.toml` writes are deterministic and atomic. A save/load/save round trip

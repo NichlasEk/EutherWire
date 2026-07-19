@@ -48,10 +48,40 @@ static int Run(string[] arguments)
             return 0;
         case "move" when arguments.Length == 5:
             return Move(projectDirectory, arguments[2], arguments[3], arguments[4]);
+        case "insert-vertex" when arguments.Length == 6:
+            return InsertVertex(projectDirectory, arguments[2], arguments[3], arguments[4], arguments[5]);
+        case "delete-vertex" when arguments.Length == 4:
+            return DeleteVertex(projectDirectory, arguments[2], arguments[3]);
         default:
             Usage();
             return 1;
     }
+}
+
+static int InsertVertex(string projectDirectory, string routeText, string indexText, string xText, string yText)
+{
+    ObjectId routeId = ObjectId.Parse(routeText);
+    int index = int.Parse(indexText, CultureInfo.InvariantCulture);
+    double x = double.Parse(xText, NumberStyles.Float, CultureInfo.InvariantCulture);
+    double y = double.Parse(yText, NumberStyles.Float, CultureInfo.InvariantCulture);
+    ProjectDocument document = ProjectToml.Load(projectDirectory);
+    var history = new CommandHistory();
+    history.Execute(document, new InsertRouteVertexCommand(routeId, index, new Point2(x, y)));
+    ProjectToml.Save(projectDirectory, document);
+    Console.WriteLine($"Inserted {routeId}:vertex:{index} at {x.ToString("0.###", CultureInfo.InvariantCulture)}, {y.ToString("0.###", CultureInfo.InvariantCulture)} mm");
+    return 0;
+}
+
+static int DeleteVertex(string projectDirectory, string routeText, string indexText)
+{
+    ObjectId routeId = ObjectId.Parse(routeText);
+    int index = int.Parse(indexText, CultureInfo.InvariantCulture);
+    ProjectDocument document = ProjectToml.Load(projectDirectory);
+    var history = new CommandHistory();
+    history.Execute(document, new DeleteRouteVertexCommand(routeId, index));
+    ProjectToml.Save(projectDirectory, document);
+    Console.WriteLine($"Deleted {routeId}:vertex:{index}");
+    return 0;
 }
 
 static int Move(string projectDirectory, string handleText, string xText, string yText)
@@ -85,4 +115,6 @@ static void Usage()
     Console.Error.WriteLine("  eutherwire normalize <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire handles <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire move <project.eutherwire> <handle-id> <x-mm> <y-mm>");
+    Console.Error.WriteLine("  eutherwire insert-vertex <project.eutherwire> <route-id> <index> <x-mm> <y-mm>");
+    Console.Error.WriteLine("  eutherwire delete-vertex <project.eutherwire> <route-id> <index>");
 }

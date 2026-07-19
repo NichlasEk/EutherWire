@@ -311,6 +311,42 @@ public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
     }
 }
 
+public sealed class InsertRouteVertexCommand(ObjectId routeId, int index, Point2 position) : IDocumentCommand
+{
+    public string Description => $"Insert {routeId}:vertex:{index}";
+
+    public void Apply(ProjectDocument document) => DocumentHandleEditor.InsertVertex(document, routeId, index, position);
+
+    public void Undo(ProjectDocument document) => _ = DocumentHandleEditor.DeleteVertex(document, routeId, index);
+}
+
+public sealed class DeleteRouteVertexCommand(ObjectId routeId, int index) : IDocumentCommand
+{
+    private Point2 _removed;
+    private bool _hasRemoved;
+
+    public string Description => $"Delete {routeId}:vertex:{index}";
+
+    public void Apply(ProjectDocument document)
+    {
+        Point2 removed = DocumentHandleEditor.DeleteVertex(document, routeId, index);
+        if (!_hasRemoved)
+        {
+            _removed = removed;
+            _hasRemoved = true;
+        }
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        if (!_hasRemoved)
+        {
+            throw new InvalidOperationException("Command has not been applied.");
+        }
+        DocumentHandleEditor.InsertVertex(document, routeId, index, _removed);
+    }
+}
+
 public sealed class CommandHistory
 {
     private readonly Stack<IDocumentCommand> _undo = [];

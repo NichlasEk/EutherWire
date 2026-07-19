@@ -136,6 +136,17 @@ Require(wired.RequireAnnotation(noteId).Position == new Point2(800, 950), "Annot
 connectedHistory.Execute(wired, new SetObjectLabelCommand(noteId, "BORRA HÄR"));
 Require(wired.RequireAnnotation(noteId).Text == "BORRA HÄR", "Annotation text must use the shared inspector command.");
 
+int routePointCount = wired.RequireConduit(pipeId).Route.Points.Count;
+connectedHistory.Execute(wired, new InsertRouteVertexCommand(pipeId, 1, new Point2(500, -250)));
+Require(wired.RequireConduit(pipeId).Route.Points.Count == routePointCount + 1, "Insert-point commands must extend conduit geometry.");
+Require(wired.RequireCable(cableId).Route.Points[1] == new Point2(500, -250), "Contained cables must follow inserted conduit vertices.");
+Require(connectedHistory.Undo(wired), "Inserted route vertices must be undoable.");
+Require(wired.RequireConduit(pipeId).Route.Points.Count == routePointCount, "Undo must remove inserted route vertices.");
+connectedHistory.Execute(wired, new DeleteRouteVertexCommand(pipeId, 1));
+Require(wired.RequireConduit(pipeId).Route.Points.Count == routePointCount - 1, "Delete-point commands must reduce conduit geometry.");
+Require(wired.RequireCable(cableId).Route.Points.Count == routePointCount - 1, "Contained cables must follow deleted conduit vertices.");
+Require(connectedHistory.Undo(wired), "Deleted route vertices must be undoable.");
+
 string serialized = ProjectToml.Serialize(wired);
 ProjectDocument loaded = ProjectToml.Deserialize(serialized);
 string serializedAgain = ProjectToml.Serialize(loaded);
