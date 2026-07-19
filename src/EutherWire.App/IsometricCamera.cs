@@ -183,6 +183,18 @@ internal sealed class IsometricCamera
             Math.Clamp(zValue, 0, maxZ));
     }
 
+    public Point3 UnprojectElevation(double screenY, Point2 planPosition)
+    {
+        double centreX = _space.Origin.X + _space.WidthMillimetres / 2;
+        double centreY = _space.Origin.Y + _space.DepthMillimetres / 2;
+        double relativeX = planPosition.X - centreX;
+        double relativeY = planPosition.Y - centreY;
+        double rotatedY = relativeX * Math.Sin(_yawRadians) + relativeY * Math.Cos(_yawRadians);
+        double projectedY = (screenY - _offsetY) / _scale;
+        double elevation = Math.Max(0, rotatedY * _depthSlope - projectedY);
+        return new Point3(planPosition.X, planPosition.Y, elevation);
+    }
+
     private (double X, double Y) ProjectUnit(Point3 point)
     {
         double centreX = _space.Origin.X + _space.WidthMillimetres / 2;

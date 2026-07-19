@@ -216,6 +216,14 @@ Require(garageDoor.WidthMillimetres == 5500 && garageDoor.HeightMillimetres == 2
 Require(garageDoor.Centre == new Point3(5750, 2500, 1200), "Opening resize handles must retain the opposite corner and move the centre.");
 Require(openingHistory.Undo(garageDocument), "Opening resize handles must be undoable.");
 Require(garageDoor.WidthMillimetres == 5000 && garageDoor.HeightMillimetres == 2200 && garageDoor.Centre == new Point3(5500, 2500, 1100), "Opening resize undo must restore exact geometry.");
+EditHandleId cameraElevationHandle = EditHandleId.Parse("camera-north:elevation");
+Require(DocumentHandleEditor.RequireSpatialPosition(garageDocument, cameraElevationHandle) == new Point3(11200, -2600, 2700), "Devices need a stable vertical handle above their installation elevation.");
+var elevationHistory = new CommandHistory();
+elevationHistory.Execute(garageDocument, new MoveSpatialHandleCommand(cameraElevationHandle, new Point3(11200, -2600, 3100)));
+Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).ElevationMillimetres == 2600, "Vertical handles must edit device elevation independently of X and Y.");
+Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).Route.SpatialPoints[^1].Z == 2600, "Connected cable endpoints must follow a device's vertical handle.");
+Require(elevationHistory.Undo(garageDocument), "Vertical device moves must be undoable.");
+Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).ElevationMillimetres == 2200, "Vertical move undo must restore exact elevation.");
 Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).ElevationMillimetres == 2200, "Devices need installation elevation in 3D space.");
 Require(garageDocument.RequireConduit(ObjectId.Parse("camera-north-pipe")).Route.SpatialPoints.All(point => point.Z == 2200), "Routes need per-vertex 3D elevation.");
 Require(garageAnalysis.TotalCableLengthMillimetres == 7400, "Analysis must sum cable geometry in document millimetres.");

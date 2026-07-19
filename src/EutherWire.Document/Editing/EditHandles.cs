@@ -8,6 +8,7 @@ public enum EditHandleKind
     Move,
     Rotate,
     Resize,
+    Elevation,
     Vertex,
     Port,
     LabelAnchor,
@@ -62,6 +63,7 @@ public readonly record struct EditHandle(EditHandleId Id, Point2 Position);
 public static class DocumentHandles
 {
     private const double RotationHandleOffsetMillimetres = 500;
+    public const double ElevationHandleOffsetMillimetres = 500;
 
     public static IReadOnlyList<EditHandle> Enumerate(ProjectDocument document)
     {
@@ -69,6 +71,7 @@ public static class DocumentHandles
         foreach (Device device in document.Devices.Values.OrderBy(device => device.Id.Value, StringComparer.Ordinal))
         {
             handles.Add(new EditHandle(new EditHandleId(device.Id, EditHandleKind.Move), device.Position));
+            handles.Add(new EditHandle(new EditHandleId(device.Id, EditHandleKind.Elevation), device.Position));
             handles.Add(new EditHandle(
                 new EditHandleId(device.Id, EditHandleKind.Rotate),
                 device.Position + new Vector2(0, -RotationHandleOffsetMillimetres)));
@@ -146,7 +149,7 @@ public static class DocumentHandleEditor
         Point2 position = RequirePosition(document, id);
         if (document.Devices.TryGetValue(id.ObjectId, out Device? device))
         {
-            return new Point3(position.X, position.Y, device.ElevationMillimetres);
+            return new Point3(position.X, position.Y, device.ElevationMillimetres + (id.Kind == EditHandleKind.Elevation ? DocumentHandles.ElevationHandleOffsetMillimetres : 0));
         }
         if (document.Openings.TryGetValue(id.ObjectId, out BuildingOpening? opening))
         {
@@ -163,7 +166,7 @@ public static class DocumentHandleEditor
     }
 
     public static bool CanSetPosition(EditHandleId id) =>
-        id.Kind is EditHandleKind.Move or EditHandleKind.Rotate or EditHandleKind.Resize or EditHandleKind.Vertex or EditHandleKind.LabelAnchor;
+        id.Kind is EditHandleKind.Move or EditHandleKind.Rotate or EditHandleKind.Resize or EditHandleKind.Elevation or EditHandleKind.Vertex or EditHandleKind.LabelAnchor;
 
     public static void SetPosition(ProjectDocument document, EditHandleId id, Point2 position)
     {
@@ -197,6 +200,8 @@ public static class DocumentHandleEditor
                 Point3 current = BuildingOpeningGeometry.ResizeHandle(resizeOpening, id.Name ?? throw new InvalidOperationException("Resize handle has no name."));
                 BuildingOpeningGeometry.ResizeFromHandle(resizeOpening, id.Name!, new Point3(position.X, position.Y, current.Z));
                 return;
+            case EditHandleKind.Elevation:
+                return;
             case EditHandleKind.Vertex:
                 SetRouteVertex(document, id, position);
                 return;
@@ -213,6 +218,13 @@ public static class DocumentHandleEditor
         if (!double.IsFinite(position.X) || !double.IsFinite(position.Y) || !double.IsFinite(position.Z) || position.Z < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(position), "Spatial handle coordinates must be finite and elevation non-negative.");
+        }
+        if (id.Kind == EditHandleKind.Elevation)
+        {
+            Device elevationDevice = document.RequireDevice(id.ObjectId);
+            double elevation = Math.Max(0, position.Z - DocumentHandles.ElevationHandleOffsetMillimetres);
+            SetSpatialPosition(document, new EditHandleId(id.ObjectId, EditHandleKind.Move), new Point3(elevationDevice.Position.X, elevationDevice.Position.Y, elevation));
+            return;
         }
         if (id.Kind == EditHandleKind.Resize && document.Openings.TryGetValue(id.ObjectId, out BuildingOpening? resizeOpening))
         {

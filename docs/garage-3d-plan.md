@@ -39,8 +39,9 @@ The intended workflow is:
   wall-opening kinds with wall surface, 3D centre, width, height, label,
   stable move/property handles, and deterministic TOML/SVG/PNG output.
 - Garage Draft contains a 5,000 × 2,200 mm garage door on the south wall.
-- The `OPEN` tool places garage doors, doors, windows, and penetrations on the
-  selected inner or outer wall. Two named 3D corner handles resize width and
+- The `OPEN` tool has explicit `N`/`S`/`E`/`W` and `INSIDE`/`OUTSIDE` wall
+  selectors, then places one garage door, door, window, or penetration before
+  automatically returning to `SEL`. Two named 3D corner handles resize width and
   height while preserving the opposite corner; exact dimensions remain
   available in the inspector and through property handles.
 - The renderer shows distinct inner and outer wall shells and the ceiling slab.
@@ -50,6 +51,9 @@ The intended workflow is:
 - Device and route-vertex move handles edit X/Y/Z together in 3D, snap to
   100 mm, propagate connected cable/conduit endpoints, and use undo/redo.
 - Selected devices expose exact numeric X/Y/Z fields in the inspector.
+- Selected devices expose a dedicated orange vertical elevation handle plus
+  100 mm step controls. Moving it keeps X/Y fixed and propagates the new Z to
+  connected cable and conduit endpoints through undoable commands.
 - `handles` reports X/Y/Z for every stable handle and `move3d` moves a device
   or free route vertex by semantic handle ID, which gives agents the same
   precise editing path as the desktop.
@@ -69,7 +73,7 @@ canvas and remains useful on systems without a GPU API configured.
 - wall-local horizontal and vertical handles;
 - snap to floor, ceiling, corners, existing routes, ports, and configured
   installation heights;
-- explicit one-axis Z handles for touch use.
+- explicit one-axis Z handles for route vertices and touch use.
 
 All of these remain command-based and addressable without screen coordinates.
 
