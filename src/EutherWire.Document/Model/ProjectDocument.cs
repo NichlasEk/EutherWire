@@ -41,6 +41,31 @@ public sealed class ProjectDocument
             ? device
             : throw new KeyNotFoundException($"Device '{id}' does not exist.");
 
+    public CableRoute RequireCable(ObjectId id) =>
+        _cables.TryGetValue(id, out CableRoute? cable)
+            ? cable
+            : throw new KeyNotFoundException($"Cable '{id}' does not exist.");
+
+    public Conduit RequireConduit(ObjectId id) =>
+        _conduits.TryGetValue(id, out Conduit? conduit)
+            ? conduit
+            : throw new KeyNotFoundException($"Conduit '{id}' does not exist.");
+
+    internal bool TryGetCable(ObjectId id, out CableRoute? cable) => _cables.TryGetValue(id, out cable);
+    internal bool TryGetConduit(ObjectId id, out Conduit? conduit) => _conduits.TryGetValue(id, out conduit);
+
+    internal void Replace(CableRoute cable)
+    {
+        _ = RequireCable(cable.Id);
+        _cables[cable.Id] = cable;
+    }
+
+    internal void Replace(Conduit conduit)
+    {
+        _ = RequireConduit(conduit.Id);
+        _conduits[conduit.Id] = conduit;
+    }
+
     private void RequireUniqueId(ObjectId id)
     {
         if (_devices.ContainsKey(id) || _cables.ContainsKey(id) || _conduits.ContainsKey(id))

@@ -1,4 +1,5 @@
 using EutherWire.Document.Geometry;
+using EutherWire.Document.Editing;
 using EutherWire.Document.Model;
 
 namespace EutherWire.Document.Commands;
@@ -35,6 +36,33 @@ public sealed class MoveDeviceCommand(ObjectId deviceId, Point2 destination) : I
             throw new InvalidOperationException("A command cannot be undone before it has been applied.");
         }
         document.RequireDevice(deviceId).Position = _origin;
+    }
+}
+
+public sealed class MoveEditHandleCommand(EditHandleId handleId, Point2 destination) : IDocumentCommand
+{
+    private Point2 _origin;
+    private bool _hasOrigin;
+
+    public string Description => $"Move {handleId}";
+
+    public void Apply(ProjectDocument document)
+    {
+        if (!_hasOrigin)
+        {
+            _origin = DocumentHandleEditor.RequirePosition(document, handleId);
+            _hasOrigin = true;
+        }
+        DocumentHandleEditor.SetPosition(document, handleId, destination);
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        if (!_hasOrigin)
+        {
+            throw new InvalidOperationException("A command cannot be undone before it has been applied.");
+        }
+        DocumentHandleEditor.SetPosition(document, handleId, _origin);
     }
 }
 

@@ -19,6 +19,17 @@ public sealed class Polyline
 
     public IReadOnlyList<Point2> Points => _points;
 
+    public Polyline WithPoint(int index, Point2 point)
+    {
+        if ((uint)index >= (uint)_points.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index));
+        }
+        var points = new List<Point2>(_points);
+        points[index] = point;
+        return new Polyline(points);
+    }
+
     public double LengthMillimetres
     {
         get

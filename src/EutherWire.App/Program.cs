@@ -1,5 +1,8 @@
 using EutherWire.App;
+using EutherWire.Document.Commands;
+using EutherWire.Document.Editing;
 using EutherWire.Document.Geometry;
+using EutherWire.Document.Model;
 using SystemRegisIII.WaylandForge.App;
 using SystemRegisIII.WaylandForge.Ui;
 
@@ -14,13 +17,12 @@ internal sealed class EutherWireApplication : IForgeApplication
     private const int StatusHeight = 28;
 
     private readonly CanvasCamera _camera = new();
-    private Point2 _central = new(0, 0);
-    private Point2 _switch = new(6500, 800);
-    private Point2 _cameraNorth = new(11200, -2600);
-    private readonly List<Point2> _northRoute = [new(6500, 800), new(6500, -2600), new(11200, -2600)];
+    private readonly ProjectDocument _document = CreateGarageDraft();
+    private readonly CommandHistory _history = new();
     private PointerState _previousPointer;
     private uint _handledScrollSerial;
-    private string? _activeHandle;
+    private EditHandleId? _activeHandle;
+    private Point2 _dragOrigin;
 
     public void Render(in ForgeFrame frame)
     {
@@ -36,7 +38,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             canvas.FillRect(work.X, work.Y, work.Width, work.Height, 0xff17212a);
             DrawGrid(canvas, work);
-            DrawGarageFixture(canvas);
+            DrawDocument(canvas);
             DrawHandles(canvas);
         }
 
@@ -66,56 +68,46 @@ internal sealed class EutherWireApplication : IForgeApplication
         PointerState pointer = frame.Pointer;
         bool pressed = pointer.LeftPressed;
         bool started = pressed && !_previousPointer.LeftPressed;
+        bool released = !pressed && _previousPointer.LeftPressed;
+
         if (started)
         {
             _activeHandle = HitHandle(pointer.X, pointer.Y);
-        }
-        if (!pressed)
-        {
-            _activeHandle = null;
-            return;
-        }
-        if (_activeHandle is null)
-        {
-            return;
+            if (_activeHandle is EditHandleId handleId)
+            {
+                _dragOrigin = DocumentHandleEditor.RequirePosition(_document, handleId);
+            }
         }
 
-        Point2 position = _camera.ScreenToDocument(pointer.X, pointer.Y);
-        switch (_activeHandle)
+        if (pressed && _activeHandle is EditHandleId active)
         {
-            case "central:move":
-                _central = position;
-                break;
-            case "poe-switch:move":
-                _switch = position;
-                _northRoute[0] = position;
-                break;
-            case "camera-north:move":
-                _cameraNorth = position;
-                _northRoute[^1] = position;
-                break;
-            case "camera-north-route:vertex:0":
-                _northRoute[0] = position;
-                _switch = position;
-                break;
-            case "camera-north-route:vertex:1":
-                _northRoute[1] = position;
-                break;
-            case "camera-north-route:vertex:2":
-                _northRoute[2] = position;
-                _cameraNorth = position;
-                break;
+            DocumentHandleEditor.SetPosition(_document, active, _camera.ScreenToDocument(pointer.X, pointer.Y));
+        }
+
+        if (released && _activeHandle is EditHandleId completed)
+        {
+            Point2 destination = DocumentHandleEditor.RequirePosition(_document, completed);
+            DocumentHandleEditor.SetPosition(_document, completed, _dragOrigin);
+            if (destination != _dragOrigin)
+            {
+                _history.Execute(_document, new MoveEditHandleCommand(completed, destination));
+            }
+            _activeHandle = null;
         }
     }
 
-    private string? HitHandle(int screenX, int screenY)
+    private EditHandleId? HitHandle(int screenX, int screenY)
     {
-        foreach ((string id, Point2 position, _) in EnumerateHandles().Reverse())
+        foreach (EditHandle handle in DocumentHandles.Enumerate(_document).Reverse())
         {
-            (double x, double y) = _camera.DocumentToScreen(position);
+            if (!DocumentHandleEditor.CanSetPosition(handle.Id))
+            {
+                continue;
+            }
+            (double x, double y) = _camera.DocumentToScreen(handle.Position);
             if (Math.Abs(screenX - x) <= 9 && Math.Abs(screenY - y) <= 9)
             {
-                return id;
+                return handle.Id;
             }
         }
         return null;
@@ -157,46 +149,56 @@ internal sealed class EutherWireApplication : IForgeApplication
     private static bool IsMajorGridLine(double coordinate, double minorStep) =>
         Math.Abs(coordinate / (minorStep * 5) - Math.Round(coordinate / (minorStep * 5))) < 0.00001;
 
-    private void DrawGarageFixture(SoftwareCanvas canvas)
+    private void DrawDocument(SoftwareCanvas canvas)
     {
-        DrawDevice(canvas, _central, 1500, 900, "CENTRAL", 0xffd7a84a);
-        DrawDevice(canvas, _switch, 1300, 700, "POE-SW", 0xff4aa6d7);
-        DrawDevice(canvas, _cameraNorth, 700, 500, "KAM-N", 0xff64c987);
-
-        DrawRoute(canvas, _northRoute, 0xff708898, 5);
-        DrawRoute(canvas, _northRoute, 0xff55c8ff, 2);
+        foreach (Conduit conduit in _document.Conduits.Values)
+        {
+            DrawRoute(canvas, conduit.Route.Points, 0xff708898, 5);
+        }
+        foreach (CableRoute cable in _document.Cables.Values)
+        {
+            DrawRoute(canvas, cable.Route.Points, 0xff55c8ff, 2);
+        }
+        foreach (Device device in _document.Devices.Values)
+        {
+            (double width, double height, uint color) = DeviceStyle(device.Kind);
+            DrawDevice(canvas, device, width, height, color);
+        }
     }
 
     private void DrawHandles(SoftwareCanvas canvas)
     {
-        foreach ((string id, Point2 position, uint color) in EnumerateHandles())
+        foreach (EditHandle handle in DocumentHandles.Enumerate(_document))
         {
-            (double x, double y) = _camera.DocumentToScreen(position);
-            int size = id == _activeHandle ? 11 : 7;
-            canvas.FillRect((int)Math.Round(x) - size / 2, (int)Math.Round(y) - size / 2, size, size, 0xff101820);
-            canvas.DrawRect((int)Math.Round(x) - size / 2, (int)Math.Round(y) - size / 2, size, size, color);
+            (double x, double y) = _camera.DocumentToScreen(handle.Position);
+            bool active = _activeHandle == handle.Id;
+            int size = active ? 11 : handle.Id.Kind == EditHandleKind.Port ? 5 : 7;
+            uint color = HandleColor(handle.Id.Kind);
+            int left = (int)Math.Round(x) - size / 2;
+            int top = (int)Math.Round(y) - size / 2;
+            canvas.FillRect(left, top, size, size, 0xff101820);
+            canvas.DrawRect(left, top, size, size, color);
         }
     }
 
-    private IEnumerable<(string Id, Point2 Position, uint Color)> EnumerateHandles()
+    private void DrawDevice(SoftwareCanvas canvas, Device device, double widthMm, double heightMm, uint color)
     {
-        yield return ("central:move", _central, 0xffffcc66);
-        yield return ("poe-switch:move", _switch, 0xffffcc66);
-        yield return ("camera-north:move", _cameraNorth, 0xffffcc66);
-        for (int index = 0; index < _northRoute.Count; index++)
-        {
-            yield return ($"camera-north-route:vertex:{index}", _northRoute[index], 0xff63d4ff);
-        }
-    }
-
-    private void DrawDevice(SoftwareCanvas canvas, Point2 centre, double widthMm, double heightMm, string label, uint color)
-    {
-        (double x, double y) = _camera.DocumentToScreen(new Point2(centre.X - widthMm / 2, centre.Y - heightMm / 2));
+        (double x, double y) = _camera.DocumentToScreen(new Point2(device.Position.X - widthMm / 2, device.Position.Y - heightMm / 2));
         int width = Math.Max(8, (int)Math.Round(widthMm * _camera.PixelsPerMillimetre));
         int height = Math.Max(8, (int)Math.Round(heightMm * _camera.PixelsPerMillimetre));
         canvas.FillRect((int)x, (int)y, width, height, 0xff20303b);
         canvas.DrawRect((int)x, (int)y, width, height, color);
-        canvas.DrawText((int)x + 6, (int)y + 7, label, color);
+        canvas.DrawText((int)x + 6, (int)y + 7, device.Label, color);
+
+        double radians = (device.RotationDegrees - 90) * Math.PI / 180;
+        (double centreX, double centreY) = _camera.DocumentToScreen(device.Position);
+        int directionLength = Math.Max(8, Math.Min(width, height) / 2);
+        canvas.DrawLine(
+            (int)centreX,
+            (int)centreY,
+            (int)Math.Round(centreX + Math.Cos(radians) * directionLength),
+            (int)Math.Round(centreY + Math.Sin(radians) * directionLength),
+            color);
     }
 
     private void DrawRoute(SoftwareCanvas canvas, IReadOnlyList<Point2> points, uint color, int thickness)
@@ -228,14 +230,76 @@ internal sealed class EutherWireApplication : IForgeApplication
         int inspectorX = work.Right;
         canvas.FillRect(inspectorX, 0, canvas.Width - inspectorX, canvas.Height, 0xff101820);
         canvas.DrawLine(inspectorX, 0, inspectorX, canvas.Height, 0xff40515e);
-        canvas.DrawText(inspectorX + 18, 20, "GARAGE DRAFT", 0xffe3edf2, 2);
-        canvas.DrawText(inspectorX + 18, 60, $"Handle: {_activeHandle ?? "none"}", 0xff9eb0bb);
-        canvas.DrawText(inspectorX + 18, 86, "Layer: Installation", 0xff9eb0bb);
+        canvas.DrawText(inspectorX + 18, 20, _document.Name.ToUpperInvariant(), 0xffe3edf2, 2);
+        canvas.DrawText(inspectorX + 18, 60, $"Handle: {_activeHandle?.ToString() ?? "none"}", 0xff9eb0bb);
+        canvas.DrawText(inspectorX + 18, 86, $"Objects: {_document.Devices.Count + _document.Cables.Count + _document.Conduits.Count}", 0xff9eb0bb);
+        canvas.DrawText(inspectorX + 18, 112, $"Undo: {_history.UndoCount}   Redo: {_history.RedoCount}", 0xff9eb0bb);
 
         canvas.FillRect(ToolbarWidth, work.Bottom, work.Width, StatusHeight, 0xff0b1117);
         Point2 documentPoint = _camera.ScreenToDocument(pointer.X, pointer.Y);
         canvas.DrawText(ToolbarWidth + 12, work.Bottom + 10,
             $"X {documentPoint.X:0} mm   Y {documentPoint.Y:0} mm   Zoom {_camera.PixelsPerMillimetre * 1000:0} px/m   MMB/RMB pan   Wheel zoom",
             0xff91a6b3);
+    }
+
+    private static (double Width, double Height, uint Color) DeviceStyle(DeviceKind kind) => kind switch
+    {
+        DeviceKind.DistributionBoard => (1500, 900, 0xffd7a84a),
+        DeviceKind.PoeSwitch => (1300, 700, 0xff4aa6d7),
+        DeviceKind.Camera => (700, 500, 0xff64c987),
+        _ => (800, 600, 0xffb4c0c8),
+    };
+
+    private static uint HandleColor(EditHandleKind kind) => kind switch
+    {
+        EditHandleKind.Move => 0xffffcc66,
+        EditHandleKind.Rotate => 0xffff70d2,
+        EditHandleKind.Vertex => 0xff63d4ff,
+        EditHandleKind.Port => 0xff61e294,
+        _ => 0xffd7e0e5,
+    };
+
+    private static ProjectDocument CreateGarageDraft()
+    {
+        var document = new ProjectDocument("Garage Draft");
+        document.Add(new Device(
+            ObjectId.Parse("main-board"),
+            DeviceKind.DistributionBoard,
+            new Point2(0, 0),
+            "CENTRAL",
+            [new Port("garage-feed", PortKind.MainsPower, new Point2(750, 0))]));
+        document.Add(new Device(
+            ObjectId.Parse("poe-switch"),
+            DeviceKind.PoeSwitch,
+            new Point2(6500, 800),
+            "POE-SW",
+            [
+                new Port("uplink", PortKind.Ethernet, new Point2(-650, 0)),
+                new Port("port-1", PortKind.EthernetPoe, new Point2(0, -350)),
+            ]));
+        document.Add(new Device(
+            ObjectId.Parse("camera-north"),
+            DeviceKind.Camera,
+            new Point2(11200, -2600),
+            "KAM-N",
+            [new Port("eth0", PortKind.EthernetPoe, new Point2(-350, 0))]));
+
+        Point2[] route = [new(6500, 450), new(6500, -2600), new(10850, -2600)];
+        ObjectId conduitId = ObjectId.Parse("camera-north-pipe");
+        document.Add(new Conduit(
+            conduitId,
+            "RÖR-R07",
+            25,
+            new Polyline(route),
+            InstallationMethod.Concealed));
+        document.Add(new CableRoute(
+            ObjectId.Parse("camera-north-cat6"),
+            "KAM-N-CAT6",
+            CableKind.Cat6,
+            new Polyline(route),
+            new PortReference(ObjectId.Parse("poe-switch"), "port-1"),
+            new PortReference(ObjectId.Parse("camera-north"), "eth0"),
+            conduitId));
+        return document;
     }
 }
