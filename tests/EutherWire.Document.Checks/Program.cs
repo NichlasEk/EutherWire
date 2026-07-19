@@ -179,7 +179,8 @@ catch (ProjectFormatException exception)
     Require(exception.Message.Contains("missing device", StringComparison.Ordinal), "Dangling references need useful diagnostics.");
 }
 
-ProjectAnalysis garageAnalysis = ProjectAnalyzer.Analyze(ProjectTemplates.CreateGarageDraft());
+ProjectDocument garageDocument = ProjectTemplates.CreateGarageDraft();
+ProjectAnalysis garageAnalysis = ProjectAnalyzer.Analyze(garageDocument);
 Require(garageAnalysis.TotalCableLengthMillimetres == 7400, "Analysis must sum cable geometry in document millimetres.");
 Require(garageAnalysis.TotalConduitLengthMillimetres == 7400, "Analysis must sum conduit geometry.");
 Require(Math.Abs(garageAnalysis.RecommendedCableLengthMillimetres - 9140) < 0.001, "Cable orders need margin and a service loop.");
@@ -187,6 +188,16 @@ ConduitFill garageFill = garageAnalysis.ConduitFills.Single();
 Require(Math.Abs(garageFill.FillRatio - (6.2 * 6.2 / (25 * 25))) < 0.000001, "Conduit fill must use the planning diameter catalogue.");
 Require(garageAnalysis.ErrorCount == 0 && garageAnalysis.WarningCount == 0, "The garage template must be semantically sound.");
 Require(garageAnalysis.Materials.Any(item => item.Category == "cable" && item.Key == nameof(CableKind.Cat6) && Math.Abs(item.Quantity - 9.14) < 0.001), "Material list must aggregate recommended cable metres.");
+
+PropertyHandleId statusPropertyId = PropertyHandleId.Parse("camera-north-cat6:property:installation_status");
+IReadOnlyList<DocumentProperty> garageProperties = DocumentProperties.Enumerate(garageDocument);
+Require(garageProperties.Any(property => property.Id == statusPropertyId && property.Value == "planned"), "Objects need stable semantic property handles.");
+Require(garageProperties.Any(property => property.Id.ToString() == "camera-north-pipe:property:inner_diameter_mm"), "Conduit dimensions need property handles.");
+var propertyHistory = new CommandHistory();
+propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, statusPropertyId, "tested"));
+Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).InstallationStatus == InstallationStatus.Tested, "Property handles must create real document commands.");
+Require(propertyHistory.Undo(garageDocument), "Property-handle edits must be undoable.");
+Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).InstallationStatus == InstallationStatus.Planned, "Property undo must restore the previous value.");
 
 var invalid = new ProjectDocument("Analysis diagnostics");
 ObjectId mainsId = ObjectId.Parse("mains");

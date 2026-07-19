@@ -49,6 +49,15 @@ static int Run(string[] arguments)
                 Console.WriteLine($"{handle.Id}\t{handle.Position.X.ToString("0.###", CultureInfo.InvariantCulture)}\t{handle.Position.Y.ToString("0.###", CultureInfo.InvariantCulture)}");
             }
             return 0;
+        case "properties" when arguments.Length == 2:
+            foreach (DocumentProperty property in DocumentProperties.Enumerate(ProjectToml.Load(projectDirectory)))
+            {
+                string choices = property.Choices is { Count: > 0 } ? $"\t{string.Join('|', property.Choices)}" : string.Empty;
+                Console.WriteLine($"{property.Id}\t{property.Kind.ToString().ToLowerInvariant()}\t{property.Value}{choices}");
+            }
+            return 0;
+        case "set-property" when arguments.Length == 4:
+            return SetProperty(projectDirectory, arguments[2], arguments[3]);
         case "move" when arguments.Length == 5:
             return Move(projectDirectory, arguments[2], arguments[3], arguments[4]);
         case "insert-vertex" when arguments.Length == 6:
@@ -63,6 +72,18 @@ static int Run(string[] arguments)
             Usage();
             return 1;
     }
+}
+
+static int SetProperty(string projectDirectory, string propertyText, string value)
+{
+    PropertyHandleId propertyId = PropertyHandleId.Parse(propertyText);
+    ProjectDocument document = ProjectToml.Load(projectDirectory);
+    var history = new CommandHistory();
+    history.Execute(document, DocumentProperties.CreateSetCommand(document, propertyId, value));
+    ProjectToml.Save(projectDirectory, document);
+    DocumentProperty property = DocumentProperties.Enumerate(document).Single(item => item.Id == propertyId);
+    Console.WriteLine($"Set {property.Id}={property.Value}");
+    return 0;
 }
 
 static int Configure(string projectDirectory, string slackText, string serviceLoopText)
@@ -177,6 +198,8 @@ static void Usage()
     Console.Error.WriteLine("  eutherwire report <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire normalize <project.eutherwire>");
     Console.Error.WriteLine("  eutherwire handles <project.eutherwire>");
+    Console.Error.WriteLine("  eutherwire properties <project.eutherwire>");
+    Console.Error.WriteLine("  eutherwire set-property <project.eutherwire> <property-handle> <value>");
     Console.Error.WriteLine("  eutherwire move <project.eutherwire> <handle-id> <x-mm> <y-mm>");
     Console.Error.WriteLine("  eutherwire insert-vertex <project.eutherwire> <route-id> <index> <x-mm> <y-mm>");
     Console.Error.WriteLine("  eutherwire delete-vertex <project.eutherwire> <route-id> <index>");

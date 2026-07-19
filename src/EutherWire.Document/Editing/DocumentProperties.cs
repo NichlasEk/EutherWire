@@ -1,0 +1,157 @@
+using System.Globalization;
+using EutherWire.Document.Commands;
+using EutherWire.Document.Model;
+
+namespace EutherWire.Document.Editing;
+
+public enum PropertyValueKind
+{
+    Text,
+    Number,
+    Choice,
+}
+
+public readonly record struct PropertyHandleId(ObjectId ObjectId, string Name)
+{
+    private const string Marker = ":property:";
+
+    public static PropertyHandleId Parse(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        int marker = value.LastIndexOf(Marker, StringComparison.Ordinal);
+        if (marker <= 0 || marker + Marker.Length >= value.Length)
+        {
+            throw new FormatException($"Invalid property handle '{value}'; expected object-id:property:name.");
+        }
+        string name = value[(marker + Marker.Length)..];
+        if (name.Any(character => !(char.IsAsciiLetterOrDigit(character) || character == '_')))
+        {
+            throw new FormatException($"Invalid property name '{name}'.");
+        }
+        return new PropertyHandleId(ObjectId.Parse(value[..marker]), name);
+    }
+
+    public override string ToString() => $"{ObjectId}{Marker}{Name}";
+}
+
+public sealed record DocumentProperty(
+    PropertyHandleId Id,
+    PropertyValueKind Kind,
+    string Value,
+    IReadOnlyList<string>? Choices = null);
+
+public static class DocumentProperties
+{
+    public static IReadOnlyList<DocumentProperty> Enumerate(ProjectDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        var properties = new List<DocumentProperty>();
+        foreach (Device device in document.Devices.Values)
+        {
+            properties.Add(Text(device.Id, "label", device.Label));
+            properties.Add(Choice(device.Id, "kind", device.Kind));
+        }
+        foreach (CableRoute cable in document.Cables.Values)
+        {
+            properties.Add(Text(cable.Id, "label", cable.Label));
+            properties.Add(Choice(cable.Id, "kind", cable.Kind));
+            properties.Add(Choice(cable.Id, "installation_status", cable.InstallationStatus));
+            properties.Add(new DocumentProperty(
+                new PropertyHandleId(cable.Id, "actual_length_mm"),
+                PropertyValueKind.Number,
+                cable.ActualLengthMillimetres?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown"));
+        }
+        foreach (Conduit conduit in document.Conduits.Values)
+        {
+            properties.Add(Text(conduit.Id, "label", conduit.Label));
+            properties.Add(new DocumentProperty(
+                new PropertyHandleId(conduit.Id, "inner_diameter_mm"),
+                PropertyValueKind.Number,
+                conduit.InnerDiameterMillimetres.ToString("0.###", CultureInfo.InvariantCulture)));
+        }
+        foreach (Annotation annotation in document.Annotations.Values)
+        {
+            properties.Add(Text(annotation.Id, "label", annotation.Text));
+        }
+        return properties.OrderBy(property => property.Id.ToString(), StringComparer.Ordinal).ToList();
+    }
+
+    public static IDocumentCommand CreateSetCommand(ProjectDocument document, PropertyHandleId id, string value)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        _ = Enumerate(document).FirstOrDefault(property => property.Id == id)
+            ?? throw new KeyNotFoundException($"Property handle '{id}' does not exist.");
+        return id.Name switch
+        {
+            "label" => new SetObjectLabelCommand(id.ObjectId, value),
+            "kind" when document.Devices.ContainsKey(id.ObjectId) =>
+                new SetDeviceKindCommand(id.ObjectId, ParseChoice<DeviceKind>(value)),
+            "kind" when document.Cables.ContainsKey(id.ObjectId) =>
+                new SetCableKindCommand(id.ObjectId, ParseChoice<CableKind>(value)),
+            "installation_status" => new SetCableInstallationCommand(
+                id.ObjectId,
+                ParseChoice<InstallationStatus>(value),
+                document.RequireCable(id.ObjectId).ActualLengthMillimetres),
+            "actual_length_mm" => new SetCableInstallationCommand(
+                id.ObjectId,
+                document.RequireCable(id.ObjectId).InstallationStatus,
+                ParseOptionalLength(value)),
+            "inner_diameter_mm" => new SetConduitDiameterCommand(
+                id.ObjectId,
+                double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture)),
+            _ => throw new InvalidOperationException($"Property handle '{id}' is not writable."),
+        };
+    }
+
+    private static DocumentProperty Text(ObjectId id, string name, string value) =>
+        new(new PropertyHandleId(id, name), PropertyValueKind.Text, value);
+
+    private static DocumentProperty Choice<T>(ObjectId id, string name, T value) where T : struct, Enum =>
+        new(
+            new PropertyHandleId(id, name),
+            PropertyValueKind.Choice,
+            EnumName(value),
+            Enum.GetValues<T>().Select(EnumName).ToList());
+
+    private static T ParseChoice<T>(string value) where T : struct, Enum
+    {
+        string normalized = value.Replace("_", string.Empty, StringComparison.Ordinal);
+        foreach (T candidate in Enum.GetValues<T>())
+        {
+            if (string.Equals(candidate.ToString(), normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                return candidate;
+            }
+        }
+        throw new ArgumentException($"Unknown {typeof(T).Name} value '{value}'.");
+    }
+
+    private static double? ParseOptionalLength(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || string.Equals(value, "unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+        double length = double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture);
+        if (!double.IsFinite(length) || length < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), "Actual length must be non-negative.");
+        }
+        return length;
+    }
+
+    private static string EnumName<T>(T value) where T : struct, Enum
+    {
+        string name = value.ToString();
+        var output = new System.Text.StringBuilder(name.Length + 4);
+        for (int index = 0; index < name.Length; index++)
+        {
+            if (index > 0 && char.IsUpper(name[index]))
+            {
+                output.Append('_');
+            }
+            output.Append(char.ToLowerInvariant(name[index]));
+        }
+        return output.ToString();
+    }
+}

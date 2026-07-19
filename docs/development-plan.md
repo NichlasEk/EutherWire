@@ -245,7 +245,9 @@ schema rather than hardcoded per symbol.
 - Every editable feature exposes stable semantic handles shared by mouse,
   touch, keyboard commands, and agent-driven edits. Handles identify roles such
   as `move`, `rotate`, `port:eth0`, and `vertex:2`; screen pixels are never part
-  of their identity.
+  of their identity. Non-geometric values use property handles such as
+  `camera-north-cat6:property:installation_status`, with discoverable types and
+  allowed choices.
 - First proving document: Garage Draft.
 - No general CAD scope, Bezier router, huge IEC library, AI layer, or schematic
   auto-layout before the core editing loop is proven.

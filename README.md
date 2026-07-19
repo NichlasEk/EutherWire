@@ -41,7 +41,9 @@ The CLI uses the same semantic handles as the UI:
 
 ```sh
 dotnet run --project src/EutherWire.Cli -- handles examples/garage.eutherwire
+dotnet run --project src/EutherWire.Cli -- properties examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- move examples/garage.eutherwire camera-north-pipe:vertex:1 7000 -3000
+dotnet run --project src/EutherWire.Cli -- set-property examples/garage.eutherwire camera-north-cat6:property:installation_status tested
 dotnet run --project src/EutherWire.Cli -- validate examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- report examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- insert-vertex examples/garage.eutherwire camera-north-pipe 1 6500 -1000
@@ -54,6 +56,10 @@ dotnet run --project src/EutherWire.Cli -- install examples/garage.eutherwire ca
 must produce no diff. Planning slack, service-loop length, cable installation
 state, and measured installed length live in the same versioned model so a
 future mobile installation client does not need a second source of truth.
+Geometry and properties both have stable semantic addresses. For example,
+`camera-north-pipe:vertex:1` moves a route point while
+`camera-north-cat6:property:actual_length_mm` edits installation data through
+the same undoable command layer used by the desktop UI.
 
 ## Status
 
