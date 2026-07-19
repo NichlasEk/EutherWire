@@ -93,6 +93,10 @@ public static class DocumentHandles
         {
             AddVertices(handles, conduit.Id, conduit.Route);
         }
+        foreach (Annotation annotation in document.Annotations.Values.OrderBy(annotation => annotation.Id.Value, StringComparer.Ordinal))
+        {
+            handles.Add(new EditHandle(new EditHandleId(annotation.Id, EditHandleKind.LabelAnchor), annotation.Position));
+        }
         return handles;
     }
 
@@ -130,7 +134,7 @@ public static class DocumentHandleEditor
     }
 
     public static bool CanSetPosition(EditHandleId id) =>
-        id.Kind is EditHandleKind.Move or EditHandleKind.Rotate or EditHandleKind.Vertex;
+        id.Kind is EditHandleKind.Move or EditHandleKind.Rotate or EditHandleKind.Vertex or EditHandleKind.LabelAnchor;
 
     public static void SetPosition(ProjectDocument document, EditHandleId id, Point2 position)
     {
@@ -156,6 +160,9 @@ public static class DocumentHandleEditor
                 return;
             case EditHandleKind.Vertex:
                 SetRouteVertex(document, id, position);
+                return;
+            case EditHandleKind.LabelAnchor:
+                document.RequireAnnotation(id.ObjectId).Position = position;
                 return;
             default:
                 throw new InvalidOperationException($"Edit handle '{id}' is an anchor and cannot be moved directly.");

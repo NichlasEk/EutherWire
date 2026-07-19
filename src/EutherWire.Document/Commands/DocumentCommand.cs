@@ -84,6 +84,21 @@ public sealed class AddConduitCommand(Conduit conduit) : IDocumentCommand
     }
 }
 
+public sealed class AddAnnotationCommand(Annotation annotation) : IDocumentCommand
+{
+    public string Description => $"Add {annotation.Id}";
+
+    public void Apply(ProjectDocument document) => document.Add(annotation);
+
+    public void Undo(ProjectDocument document)
+    {
+        if (!document.RemoveAnnotation(annotation.Id, out _))
+        {
+            throw new InvalidOperationException($"Annotation '{annotation.Id}' cannot be removed because it no longer exists.");
+        }
+    }
+}
+
 public sealed class MoveEditHandleCommand(EditHandleId handleId, Point2 destination) : IDocumentCommand
 {
     private Point2 _origin;
@@ -132,6 +147,7 @@ public sealed class SetObjectLabelCommand(ObjectId objectId, string label) : IDo
         if (document.Devices.TryGetValue(id, out Device? device)) return device.Label;
         if (document.Cables.TryGetValue(id, out CableRoute? cable)) return cable.Label;
         if (document.Conduits.TryGetValue(id, out Conduit? conduit)) return conduit.Label;
+        if (document.Annotations.TryGetValue(id, out Annotation? annotation)) return annotation.Text;
         throw new KeyNotFoundException($"Object '{id}' does not exist.");
     }
 
@@ -150,6 +166,11 @@ public sealed class SetObjectLabelCommand(ObjectId objectId, string label) : IDo
         if (document.Conduits.TryGetValue(id, out Conduit? conduit))
         {
             document.Replace(conduit with { Label = value });
+            return;
+        }
+        if (document.Annotations.TryGetValue(id, out Annotation? annotation))
+        {
+            annotation.Text = value;
             return;
         }
         throw new KeyNotFoundException($"Object '{id}' does not exist.");
@@ -242,6 +263,9 @@ public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
             case Conduit conduit:
                 document.Add(conduit);
                 break;
+            case Annotation annotation:
+                document.Add(annotation);
+                break;
             default:
                 throw new InvalidOperationException("Command has not been applied.");
         }
@@ -266,6 +290,7 @@ public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
             }
             return conduit;
         }
+        if (document.Annotations.TryGetValue(objectId, out Annotation? annotation)) return annotation;
         throw new KeyNotFoundException($"Object '{objectId}' does not exist.");
     }
 
@@ -276,6 +301,7 @@ public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
             Device => document.RemoveDevice(objectId, out _),
             CableRoute => document.RemoveCable(objectId, out _),
             Conduit => document.RemoveConduit(objectId, out _),
+            Annotation => document.RemoveAnnotation(objectId, out _),
             _ => false,
         };
         if (!removed)

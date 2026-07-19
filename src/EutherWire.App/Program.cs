@@ -121,6 +121,11 @@ internal sealed class EutherWireApplication : IForgeApplication
                 PlaceDevice(_camera.ScreenToDocument(pointer.X, pointer.Y));
                 return;
             }
+            if (_activeTool == ToolKind.Text)
+            {
+                PlaceAnnotation(_camera.ScreenToDocument(pointer.X, pointer.Y));
+                return;
+            }
             if (_activeTool is ToolKind.Wire or ToolKind.Conduit)
             {
                 AddDraftPoint(pointer.X, pointer.Y);
@@ -244,6 +249,19 @@ internal sealed class EutherWireApplication : IForgeApplication
         _selectedObjectId = id;
         _dirty = true;
         _statusMessage = $"Placed {id} at {snapped.X:0}, {snapped.Y:0} mm";
+    }
+
+    private void PlaceAnnotation(Point2 position)
+    {
+        Point2 snapped = new(Math.Round(position.X / 100) * 100, Math.Round(position.Y / 100) * 100);
+        ObjectId id = ObjectId.Parse($"note-{Guid.NewGuid():N}");
+        int number = _document.Annotations.Count + 1;
+        var annotation = new Annotation(id, snapped, $"ANTECKNING {number:00}");
+        _history.Execute(_document, new AddAnnotationCommand(annotation));
+        _selectedObjectId = id;
+        _activeTool = ToolKind.Select;
+        _dirty = true;
+        _statusMessage = $"Placed {id}; edit text in the inspector";
     }
 
     private bool HandleChromeActions(in ForgeFrame frame)
@@ -467,7 +485,9 @@ internal sealed class EutherWireApplication : IForgeApplication
                 ? cable.Label
                 : _document.Conduits.TryGetValue(selected, out Conduit? conduit)
                     ? conduit.Label
-                    : null;
+                    : _document.Annotations.TryGetValue(selected, out Annotation? annotation)
+                        ? annotation.Text
+                        : null;
         if (label is not null)
         {
             _ui.SetText(new UiId($"inspector.label.{selected}"), label);
@@ -517,6 +537,16 @@ internal sealed class EutherWireApplication : IForgeApplication
     private ObjectId? HitObject(int screenX, int screenY)
     {
         Point2 point = _camera.ScreenToDocument(screenX, screenY);
+        foreach (Annotation annotation in _document.Annotations.Values.Reverse())
+        {
+            double widthMillimetres = Math.Max(100, annotation.Text.Length * 6 / _camera.PixelsPerMillimetre);
+            double heightMillimetres = 18 / _camera.PixelsPerMillimetre;
+            if (point.X >= annotation.Position.X && point.X <= annotation.Position.X + widthMillimetres &&
+                point.Y >= annotation.Position.Y && point.Y <= annotation.Position.Y + heightMillimetres)
+            {
+                return annotation.Id;
+            }
+        }
         foreach (Device device in _document.Devices.Values.Reverse())
         {
             (double width, double height, _) = DeviceStyle(device.Kind);
@@ -630,6 +660,10 @@ internal sealed class EutherWireApplication : IForgeApplication
             (double width, double height, uint color) = DeviceStyle(device.Kind);
             DrawDevice(canvas, device, width, height, color, _selectedObjectId == device.Id);
         }
+        foreach (Annotation annotation in _document.Annotations.Values)
+        {
+            DrawAnnotation(canvas, annotation, _selectedObjectId == annotation.Id);
+        }
     }
 
     private void DrawDraft(SoftwareCanvas canvas)
@@ -690,6 +724,18 @@ internal sealed class EutherWireApplication : IForgeApplication
             (int)Math.Round(centreX + Math.Cos(radians) * directionLength),
             (int)Math.Round(centreY + Math.Sin(radians) * directionLength),
             color);
+    }
+
+    private void DrawAnnotation(SoftwareCanvas canvas, Annotation annotation, bool selected)
+    {
+        (double x, double y) = _camera.DocumentToScreen(annotation.Position);
+        int width = annotation.Text.Length * 6 + 8;
+        if (selected)
+        {
+            canvas.FillRect((int)x - 4, (int)y - 5, width, 18, 0xff26343e);
+            canvas.DrawRect((int)x - 4, (int)y - 5, width, 18, 0xffffcc66);
+        }
+        canvas.DrawText((int)x, (int)y, annotation.Text, 0xffe6edf1);
     }
 
     private void DrawRoute(SoftwareCanvas canvas, IReadOnlyList<Point2> points, uint color, int thickness)
@@ -755,7 +801,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         if (_selectedObjectId is not ObjectId selected)
         {
             canvas.DrawText(inspectorX + 18, 60, "Selected: none", 0xff9eb0bb);
-            canvas.DrawText(inspectorX + 18, 86, $"Objects: {_document.Devices.Count + _document.Cables.Count + _document.Conduits.Count}", 0xff9eb0bb);
+            canvas.DrawText(inspectorX + 18, 86, $"Objects: {_document.Devices.Count + _document.Cables.Count + _document.Conduits.Count + _document.Annotations.Count}", 0xff9eb0bb);
             canvas.DrawText(inspectorX + 18, 112, $"Undo: {_history.UndoCount}   Redo: {_history.RedoCount}", 0xff9eb0bb);
             return;
         }
@@ -774,6 +820,11 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             canvas.DrawText(inspectorX + 18, 78, $"Conduit  {conduit.Label}", 0xffc7d4dc);
             canvas.DrawText(inspectorX + 18, 100, $"Ø {conduit.InnerDiameterMillimetres:0} mm  {conduit.Route.LengthMillimetres / 1000:0.00} m", 0xff9eb0bb);
+        }
+        else if (_document.Annotations.TryGetValue(selected, out Annotation? annotation))
+        {
+            canvas.DrawText(inspectorX + 18, 78, "Annotation", 0xffc7d4dc);
+            canvas.DrawText(inspectorX + 18, 100, $"{annotation.Position.X:0}, {annotation.Position.Y:0} mm", 0xff9eb0bb);
         }
     }
 
@@ -796,13 +847,16 @@ internal sealed class EutherWireApplication : IForgeApplication
         _document.Devices.TryGetValue(selected, out Device? device);
         _document.Cables.TryGetValue(selected, out CableRoute? cable);
         _document.Conduits.TryGetValue(selected, out Conduit? conduit);
+        _document.Annotations.TryGetValue(selected, out Annotation? annotation);
         string label = device is not null
             ? device.Label
             : cable is not null
                 ? cable.Label
                 : conduit is not null
                     ? conduit.Label
-                    : string.Empty;
+                    : annotation is not null
+                        ? annotation.Text
+                        : string.Empty;
         canvas.DrawText(inspectorX + 18, 258, "LABEL (ENTER TO APPLY)", 0xff9eb0bb);
         UiTextBoxResult text = _ui!.TextBox(
             new UiId($"inspector.label.{selected}"),
@@ -881,6 +935,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         EditHandleKind.Rotate => 0xffff70d2,
         EditHandleKind.Vertex => 0xff63d4ff,
         EditHandleKind.Port => 0xff61e294,
+        EditHandleKind.LabelAnchor => 0xffffa85c,
         _ => 0xffd7e0e5,
     };
 

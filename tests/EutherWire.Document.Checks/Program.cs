@@ -126,12 +126,23 @@ catch (InvalidOperationException exception)
     Require(exception.Message.Contains("connected", StringComparison.Ordinal), "Blocked deletion needs a useful diagnostic.");
 }
 
+ObjectId noteId = ObjectId.Parse("note-installation");
+var note = new Annotation(noteId, new Point2(750, 900), "MÄT FÖRE BORRNING");
+connectedHistory.Execute(wired, new AddAnnotationCommand(note));
+Require(wired.Contains(noteId), "Text tools must create real annotation objects.");
+var noteHandle = new EditHandleId(noteId, EditHandleKind.LabelAnchor);
+connectedHistory.Execute(wired, new MoveEditHandleCommand(noteHandle, new Point2(800, 950)));
+Require(wired.RequireAnnotation(noteId).Position == new Point2(800, 950), "Annotation anchor handles must be movable.");
+connectedHistory.Execute(wired, new SetObjectLabelCommand(noteId, "BORRA HÄR"));
+Require(wired.RequireAnnotation(noteId).Text == "BORRA HÄR", "Annotation text must use the shared inspector command.");
+
 string serialized = ProjectToml.Serialize(wired);
 ProjectDocument loaded = ProjectToml.Deserialize(serialized);
 string serializedAgain = ProjectToml.Serialize(loaded);
 Require(serializedAgain == serialized, "TOML save/load/save must be byte-identical.");
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
+Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
 
 string dangling = serialized.Replace("target:in", "missing:in", StringComparison.Ordinal);
 try

@@ -31,6 +31,8 @@ dotnet run --project src/EutherWire.App --no-build -- examples/garage.eutherwire
 
 Use the middle or right mouse button to pan and the wheel to zoom around the
 pointer. Yellow object handles and blue route-vertex handles are draggable.
+`DEV`, `WIRE`, `PIPE`, and `TEXT` create real document objects; select an object
+to edit its properties or delete it through the inspector.
 
 The CLI uses the same semantic handles as the UI:
 

@@ -32,6 +32,10 @@ public static class ProjectToml
                 .OrderBy(cable => cable.Id.Value, StringComparer.Ordinal)
                 .Select(ToFile)
                 .ToList(),
+            Annotations = document.Annotations.Values
+                .OrderBy(annotation => annotation.Id.Value, StringComparer.Ordinal)
+                .Select(ToFile)
+                .ToList(),
         };
         return TomlSerializer.Serialize(file).Replace("\r\n", "\n", StringComparison.Ordinal);
     }
@@ -105,6 +109,13 @@ public static class ProjectToml
                 PortReference(source.To),
                 string.IsNullOrWhiteSpace(source.Conduit) ? null : Id(source.Conduit, "conduit reference")));
         }
+        foreach (AnnotationFile source in file.Annotations)
+        {
+            document.Add(new Annotation(
+                Id(source.Id, "annotation"),
+                Point(source.Position, $"annotations[{source.Id}].position"),
+                RequireText(source.Text, $"annotations[{source.Id}].text")));
+        }
         ValidateReferences(document);
         return document;
     }
@@ -158,6 +169,13 @@ public static class ProjectToml
         From = cable.From is PortReference from ? $"{from.DeviceId}:{from.PortId}" : null,
         To = cable.To is PortReference to ? $"{to.DeviceId}:{to.PortId}" : null,
         Conduit = cable.ConduitId?.Value,
+    };
+
+    private static AnnotationFile ToFile(Annotation annotation) => new()
+    {
+        Id = annotation.Id.Value,
+        Position = [annotation.Position.X, annotation.Position.Y],
+        Text = annotation.Text,
     };
 
     private static void ValidateReferences(ProjectDocument document)
@@ -292,6 +310,9 @@ public static class ProjectToml
 
         [JsonPropertyName("cables")]
         public List<CableFile> Cables { get; set; } = [];
+
+        [JsonPropertyName("annotations")]
+        public List<AnnotationFile> Annotations { get; set; } = [];
     }
 
     private sealed class ProjectMetadata
@@ -379,6 +400,18 @@ public static class ProjectToml
 
         [JsonPropertyName("conduit")]
         public string? Conduit { get; set; }
+    }
+
+    private sealed class AnnotationFile
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("position")]
+        public double[] Position { get; set; } = [];
+
+        [JsonPropertyName("text")]
+        public string? Text { get; set; }
     }
 }
 
