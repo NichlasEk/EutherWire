@@ -86,6 +86,14 @@ Require(wired.RequireConduit(pipeId).Route.Points[^1] == new Point2(2400, 300), 
 connectedHistory.Execute(wired, new MoveEditHandleCommand(new EditHandleId(pipeId, EditHandleKind.Vertex, 1), new Point2(1000, -500)));
 Require(wired.RequireCable(cableId).Route.Points[1] == new Point2(1000, -500), "Contained cable geometry must follow conduit vertex handles.");
 
+var placed = new Device(ObjectId.Parse("placed-box"), DeviceKind.JunctionBox, new Point2(500, 600), "DOSA-01");
+connectedHistory.Execute(wired, new AddDeviceCommand(placed));
+Require(wired.Contains(placed.Id), "Add-device commands must add stable document objects.");
+Require(connectedHistory.Undo(wired), "Placed devices must be undoable.");
+Require(!wired.Contains(placed.Id), "Undo must remove the placed device.");
+Require(connectedHistory.Redo(wired), "Placed devices must be redoable.");
+Require(wired.Contains(placed.Id), "Redo must restore the same stable object ID.");
+
 string serialized = ProjectToml.Serialize(wired);
 ProjectDocument loaded = ProjectToml.Deserialize(serialized);
 string serializedAgain = ProjectToml.Serialize(loaded);

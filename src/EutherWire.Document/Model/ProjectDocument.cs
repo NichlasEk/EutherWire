@@ -36,6 +36,9 @@ public sealed class ProjectDocument
         _conduits.Add(conduit.Id, conduit);
     }
 
+    public bool Contains(ObjectId id) =>
+        _devices.ContainsKey(id) || _cables.ContainsKey(id) || _conduits.ContainsKey(id);
+
     public Device RequireDevice(ObjectId id) =>
         _devices.TryGetValue(id, out Device? device)
             ? device
@@ -65,6 +68,8 @@ public sealed class ProjectDocument
         _ = RequireConduit(conduit.Id);
         _conduits[conduit.Id] = conduit;
     }
+
+    internal bool RemoveDevice(ObjectId id, out Device? device) => _devices.Remove(id, out device);
 
     private void RequireUniqueId(ObjectId id)
     {

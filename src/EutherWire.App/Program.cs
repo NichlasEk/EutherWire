@@ -34,6 +34,8 @@ internal sealed class EutherWireApplication : IForgeApplication
     private PointerState _previousPointer;
     private uint _handledScrollSerial;
     private EditHandleId? _activeHandle;
+    private ObjectId? _selectedObjectId;
+    private ToolKind _activeTool = ToolKind.Select;
     private Point2 _dragOrigin;
     private string _statusMessage = "Ready";
     private bool _dirty;
@@ -46,18 +48,18 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     public void Render(in ForgeFrame frame)
     {
+        int canvasRight = Math.Max(ToolbarWidth + 1, frame.Canvas.Width - InspectorWidth);
+        int canvasBottom = Math.Max(1, frame.Canvas.Height - StatusHeight);
+        var work = new RectI(ToolbarWidth, 0, canvasRight - ToolbarWidth, canvasBottom);
         bool chromeAction = HandleChromeActions(frame);
         if (!chromeAction)
         {
-            HandleEditing(frame);
+            HandleEditing(frame, work);
         }
         HandleNavigation(frame);
         SoftwareCanvas canvas = frame.Canvas;
         canvas.Clear(0xff111820);
 
-        int canvasRight = Math.Max(ToolbarWidth + 1, canvas.Width - InspectorWidth);
-        int canvasBottom = Math.Max(1, canvas.Height - StatusHeight);
-        var work = new RectI(ToolbarWidth, 0, canvasRight - ToolbarWidth, canvasBottom);
         using (canvas.PushClip(work))
         {
             canvas.FillRect(work.X, work.Y, work.Width, work.Height, 0xff17212a);
@@ -74,7 +76,8 @@ internal sealed class EutherWireApplication : IForgeApplication
     {
         PointerState pointer = frame.Pointer;
         bool panning = pointer.Buttons.HasFlag(PointerButtons.Middle) ||
-            pointer.Buttons.HasFlag(PointerButtons.Right);
+            pointer.Buttons.HasFlag(PointerButtons.Right) ||
+            (_activeTool == ToolKind.Pan && pointer.LeftPressed);
         if (panning && _previousPointer.IsInside)
         {
             _camera.Pan(pointer.X - _previousPointer.X, pointer.Y - _previousPointer.Y);
@@ -87,7 +90,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
-    private void HandleEditing(in ForgeFrame frame)
+    private void HandleEditing(in ForgeFrame frame, RectI work)
     {
         PointerState pointer = frame.Pointer;
         bool pressed = pointer.LeftPressed;
@@ -96,10 +99,29 @@ internal sealed class EutherWireApplication : IForgeApplication
 
         if (started)
         {
+            if (!work.Contains(pointer.X, pointer.Y))
+            {
+                return;
+            }
+            if (_activeTool == ToolKind.PlaceDevice)
+            {
+                PlaceDevice(_camera.ScreenToDocument(pointer.X, pointer.Y));
+                return;
+            }
+            if (_activeTool != ToolKind.Select)
+            {
+                return;
+            }
+
             _activeHandle = HitHandle(pointer.X, pointer.Y);
             if (_activeHandle is EditHandleId handleId)
             {
                 _dragOrigin = DocumentHandleEditor.RequirePosition(_document, handleId);
+            }
+            else
+            {
+                _selectedObjectId = HitObject(pointer.X, pointer.Y);
+                _statusMessage = _selectedObjectId is ObjectId selected ? $"Selected {selected}" : "Selection cleared";
             }
         }
 
@@ -122,6 +144,23 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
+    private void PlaceDevice(Point2 position)
+    {
+        Point2 snapped = new(Math.Round(position.X / 100) * 100, Math.Round(position.Y / 100) * 100);
+        ObjectId id = ObjectId.Parse($"junction-{Guid.NewGuid():N}");
+        int number = _document.Devices.Values.Count(device => device.Kind == DeviceKind.JunctionBox) + 1;
+        var device = new Device(
+            id,
+            DeviceKind.JunctionBox,
+            snapped,
+            $"DOSA-{number:00}",
+            [new Port("generic", PortKind.Generic, new Point2(0, 0))]);
+        _history.Execute(_document, new AddDeviceCommand(device));
+        _selectedObjectId = id;
+        _dirty = true;
+        _statusMessage = $"Placed {id} at {snapped.X:0}, {snapped.Y:0} mm";
+    }
+
     private bool HandleChromeActions(in ForgeFrame frame)
     {
         PointerState pointer = frame.Pointer;
@@ -131,6 +170,16 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
 
         int inspectorX = Math.Max(ToolbarWidth + 1, frame.Canvas.Width - InspectorWidth);
+        for (int index = 0; index < ToolCount; index++)
+        {
+            if (ToolRect(index).Contains(pointer.X, pointer.Y))
+            {
+                _activeTool = (ToolKind)index;
+                _activeHandle = null;
+                _statusMessage = $"Tool: {ToolLabel(_activeTool)}";
+                return true;
+            }
+        }
         if (ButtonRect(inspectorX, 0).Contains(pointer.X, pointer.Y))
         {
             SaveProject();
@@ -140,6 +189,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             if (_history.Undo(_document))
             {
+                EnsureSelectionExists();
                 _dirty = true;
                 _statusMessage = "Undo";
             }
@@ -149,12 +199,21 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             if (_history.Redo(_document))
             {
+                EnsureSelectionExists();
                 _dirty = true;
                 _statusMessage = "Redo";
             }
             return true;
         }
         return false;
+    }
+
+    private void EnsureSelectionExists()
+    {
+        if (_selectedObjectId is ObjectId selected && !_document.Contains(selected))
+        {
+            _selectedObjectId = null;
+        }
     }
 
     private void SaveProject()
@@ -180,6 +239,10 @@ internal sealed class EutherWireApplication : IForgeApplication
     {
         foreach (EditHandle handle in DocumentHandles.Enumerate(_document).Reverse())
         {
+            if (_selectedObjectId != handle.Id.ObjectId)
+            {
+                continue;
+            }
             if (!DocumentHandleEditor.CanSetPosition(handle.Id))
             {
                 continue;
@@ -191,6 +254,63 @@ internal sealed class EutherWireApplication : IForgeApplication
             }
         }
         return null;
+    }
+
+    private ObjectId? HitObject(int screenX, int screenY)
+    {
+        Point2 point = _camera.ScreenToDocument(screenX, screenY);
+        foreach (Device device in _document.Devices.Values.Reverse())
+        {
+            (double width, double height, _) = DeviceStyle(device.Kind);
+            if (Math.Abs(point.X - device.Position.X) <= width / 2 &&
+                Math.Abs(point.Y - device.Position.Y) <= height / 2)
+            {
+                return device.Id;
+            }
+        }
+        foreach (CableRoute cable in _document.Cables.Values.Reverse())
+        {
+            if (HitRoute(screenX, screenY, cable.Route.Points, 8))
+            {
+                return cable.Id;
+            }
+        }
+        foreach (Conduit conduit in _document.Conduits.Values.Reverse())
+        {
+            if (HitRoute(screenX, screenY, conduit.Route.Points, 10))
+            {
+                return conduit.Id;
+            }
+        }
+        return null;
+    }
+
+    private bool HitRoute(int screenX, int screenY, IReadOnlyList<Point2> points, double tolerancePixels)
+    {
+        for (int index = 1; index < points.Count; index++)
+        {
+            (double x0, double y0) = _camera.DocumentToScreen(points[index - 1]);
+            (double x1, double y1) = _camera.DocumentToScreen(points[index]);
+            if (DistanceToSegment(screenX, screenY, x0, y0, x1, y1) <= tolerancePixels)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static double DistanceToSegment(double x, double y, double x0, double y0, double x1, double y1)
+    {
+        double dx = x1 - x0;
+        double dy = y1 - y0;
+        if (dx == 0 && dy == 0)
+        {
+            return Math.Sqrt(Math.Pow(x - x0, 2) + Math.Pow(y - y0, 2));
+        }
+        double t = Math.Clamp(((x - x0) * dx + (y - y0) * dy) / (dx * dx + dy * dy), 0, 1);
+        double nearestX = x0 + t * dx;
+        double nearestY = y0 + t * dy;
+        return Math.Sqrt(Math.Pow(x - nearestX, 2) + Math.Pow(y - nearestY, 2));
     }
 
     private void DrawGrid(SoftwareCanvas canvas, RectI work)
@@ -233,16 +353,24 @@ internal sealed class EutherWireApplication : IForgeApplication
     {
         foreach (Conduit conduit in _document.Conduits.Values)
         {
+            if (_selectedObjectId == conduit.Id)
+            {
+                DrawRoute(canvas, conduit.Route.Points, 0xffffcc66, 9);
+            }
             DrawRoute(canvas, conduit.Route.Points, 0xff708898, 5);
         }
         foreach (CableRoute cable in _document.Cables.Values)
         {
+            if (_selectedObjectId == cable.Id)
+            {
+                DrawRoute(canvas, cable.Route.Points, 0xffffcc66, 6);
+            }
             DrawRoute(canvas, cable.Route.Points, 0xff55c8ff, 2);
         }
         foreach (Device device in _document.Devices.Values)
         {
             (double width, double height, uint color) = DeviceStyle(device.Kind);
-            DrawDevice(canvas, device, width, height, color);
+            DrawDevice(canvas, device, width, height, color, _selectedObjectId == device.Id);
         }
     }
 
@@ -250,6 +378,10 @@ internal sealed class EutherWireApplication : IForgeApplication
     {
         foreach (EditHandle handle in DocumentHandles.Enumerate(_document))
         {
+            if (_selectedObjectId != handle.Id.ObjectId)
+            {
+                continue;
+            }
             (double x, double y) = _camera.DocumentToScreen(handle.Position);
             bool active = _activeHandle == handle.Id;
             int size = active ? 11 : handle.Id.Kind == EditHandleKind.Port ? 5 : 7;
@@ -261,13 +393,17 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
-    private void DrawDevice(SoftwareCanvas canvas, Device device, double widthMm, double heightMm, uint color)
+    private void DrawDevice(SoftwareCanvas canvas, Device device, double widthMm, double heightMm, uint color, bool selected)
     {
         (double x, double y) = _camera.DocumentToScreen(new Point2(device.Position.X - widthMm / 2, device.Position.Y - heightMm / 2));
         int width = Math.Max(8, (int)Math.Round(widthMm * _camera.PixelsPerMillimetre));
         int height = Math.Max(8, (int)Math.Round(heightMm * _camera.PixelsPerMillimetre));
         canvas.FillRect((int)x, (int)y, width, height, 0xff20303b);
         canvas.DrawRect((int)x, (int)y, width, height, color);
+        if (selected)
+        {
+            canvas.DrawRect((int)x - 3, (int)y - 3, width + 6, height + 6, 0xffffcc66);
+        }
         canvas.DrawText((int)x + 6, (int)y + 7, device.Label, color);
 
         double radians = (device.RotationDegrees - 90) * Math.PI / 180;
@@ -299,21 +435,19 @@ internal sealed class EutherWireApplication : IForgeApplication
         canvas.FillRect(0, 0, ToolbarWidth, canvas.Height, 0xff0c1218);
         canvas.DrawLine(ToolbarWidth - 1, 0, ToolbarWidth - 1, canvas.Height, 0xff40515e);
         canvas.DrawText(14, 16, "EW", 0xff63d4ff, 2);
-        string[] tools = ["SEL", "PAN", "DEV", "WIRE", "PIPE", "TEXT"];
-        for (int index = 0; index < tools.Length; index++)
+        for (int index = 0; index < ToolCount; index++)
         {
-            int y = 64 + index * 48;
-            canvas.DrawRect(10, y, 52, 34, index == 0 ? 0xff63d4ff : 0xff3c5261);
-            canvas.DrawText(20, y + 13, tools[index], index == 0 ? 0xff63d4ff : 0xff9eb0bb);
+            RectI rect = ToolRect(index);
+            bool active = (int)_activeTool == index;
+            canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, active ? 0xff63d4ff : 0xff3c5261);
+            canvas.DrawText(rect.X + 10, rect.Y + 13, ToolLabel((ToolKind)index), active ? 0xff63d4ff : 0xff9eb0bb);
         }
 
         int inspectorX = work.Right;
         canvas.FillRect(inspectorX, 0, canvas.Width - inspectorX, canvas.Height, 0xff101820);
         canvas.DrawLine(inspectorX, 0, inspectorX, canvas.Height, 0xff40515e);
         canvas.DrawText(inspectorX + 18, 20, _document.Name.ToUpperInvariant(), 0xffe3edf2, 2);
-        canvas.DrawText(inspectorX + 18, 60, $"Handle: {_activeHandle?.ToString() ?? "none"}", 0xff9eb0bb);
-        canvas.DrawText(inspectorX + 18, 86, $"Objects: {_document.Devices.Count + _document.Cables.Count + _document.Conduits.Count}", 0xff9eb0bb);
-        canvas.DrawText(inspectorX + 18, 112, $"Undo: {_history.UndoCount}   Redo: {_history.RedoCount}", 0xff9eb0bb);
+        DrawSelectionInspector(canvas, inspectorX);
         DrawChromeButton(canvas, ButtonRect(inspectorX, 0), "SAVE", _projectDirectory is not null);
         DrawChromeButton(canvas, ButtonRect(inspectorX, 1), "UNDO", _history.UndoCount > 0);
         DrawChromeButton(canvas, ButtonRect(inspectorX, 2), "REDO", _history.RedoCount > 0);
@@ -327,6 +461,33 @@ internal sealed class EutherWireApplication : IForgeApplication
             0xff91a6b3);
     }
 
+    private void DrawSelectionInspector(SoftwareCanvas canvas, int inspectorX)
+    {
+        if (_selectedObjectId is not ObjectId selected)
+        {
+            canvas.DrawText(inspectorX + 18, 60, "Selected: none", 0xff9eb0bb);
+            canvas.DrawText(inspectorX + 18, 86, $"Objects: {_document.Devices.Count + _document.Cables.Count + _document.Conduits.Count}", 0xff9eb0bb);
+            canvas.DrawText(inspectorX + 18, 112, $"Undo: {_history.UndoCount}   Redo: {_history.RedoCount}", 0xff9eb0bb);
+            return;
+        }
+        canvas.DrawText(inspectorX + 18, 56, selected.ToString(), 0xff63d4ff);
+        if (_document.Devices.TryGetValue(selected, out Device? device))
+        {
+            canvas.DrawText(inspectorX + 18, 78, $"{device.Kind}  {device.Label}", 0xffc7d4dc);
+            canvas.DrawText(inspectorX + 18, 100, $"{device.Position.X:0}, {device.Position.Y:0} mm  R {device.RotationDegrees:0}°", 0xff9eb0bb);
+        }
+        else if (_document.Cables.TryGetValue(selected, out CableRoute? cable))
+        {
+            canvas.DrawText(inspectorX + 18, 78, $"{cable.Kind}  {cable.Label}", 0xffc7d4dc);
+            canvas.DrawText(inspectorX + 18, 100, $"Length {cable.Route.LengthMillimetres / 1000:0.00} m", 0xff9eb0bb);
+        }
+        else if (_document.Conduits.TryGetValue(selected, out Conduit? conduit))
+        {
+            canvas.DrawText(inspectorX + 18, 78, $"Conduit  {conduit.Label}", 0xffc7d4dc);
+            canvas.DrawText(inspectorX + 18, 100, $"Ø {conduit.InnerDiameterMillimetres:0} mm  {conduit.Route.LengthMillimetres / 1000:0.00} m", 0xff9eb0bb);
+        }
+    }
+
     private static RectI ButtonRect(int inspectorX, int index) =>
         new(inspectorX + 18 + index * 78, 146, 68, 32);
 
@@ -338,6 +499,21 @@ internal sealed class EutherWireApplication : IForgeApplication
         canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, border);
         canvas.DrawText(rect.X + 14, rect.Y + 12, label, text);
     }
+
+    private static RectI ToolRect(int index) => new(10, 64 + index * 48, 52, 34);
+
+    private const int ToolCount = 6;
+
+    private static string ToolLabel(ToolKind tool) => tool switch
+    {
+        ToolKind.Select => "SEL",
+        ToolKind.Pan => "PAN",
+        ToolKind.PlaceDevice => "DEV",
+        ToolKind.Wire => "WIRE",
+        ToolKind.Conduit => "PIPE",
+        ToolKind.Text => "TEXT",
+        _ => "?",
+    };
 
     private static (double Width, double Height, uint Color) DeviceStyle(DeviceKind kind) => kind switch
     {
@@ -355,5 +531,15 @@ internal sealed class EutherWireApplication : IForgeApplication
         EditHandleKind.Port => 0xff61e294,
         _ => 0xffd7e0e5,
     };
+
+    private enum ToolKind
+    {
+        Select,
+        Pan,
+        PlaceDevice,
+        Wire,
+        Conduit,
+        Text,
+    }
 
 }

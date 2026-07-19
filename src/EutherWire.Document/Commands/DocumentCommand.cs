@@ -39,6 +39,21 @@ public sealed class MoveDeviceCommand(ObjectId deviceId, Point2 destination) : I
     }
 }
 
+public sealed class AddDeviceCommand(Device device) : IDocumentCommand
+{
+    public string Description => $"Add {device.Id}";
+
+    public void Apply(ProjectDocument document) => document.Add(device);
+
+    public void Undo(ProjectDocument document)
+    {
+        if (!document.RemoveDevice(device.Id, out _))
+        {
+            throw new InvalidOperationException($"Device '{device.Id}' cannot be removed because it no longer exists.");
+        }
+    }
+}
+
 public sealed class MoveEditHandleCommand(EditHandleId handleId, Point2 destination) : IDocumentCommand
 {
     private Point2 _origin;
