@@ -188,6 +188,31 @@ The initial rule engine reports, but does not silently repair:
 - autosave journal and crash recovery;
 - local-agent editing through the versioned project format.
 
+## Mobile installation mode
+
+Mobile is a first-class field workflow over the same project model, not a
+scaled-down desktop editor. It comes after document synchronization and the
+desktop editing kernel are stable.
+
+Installation mode prioritises:
+
+- large touch targets and one-handed navigation;
+- room/route/device task lists generated from the drawing;
+- mark planned objects as installed, tested, changed, or blocked;
+- scan QR/barcode cable and device labels;
+- capture photos, voice notes, measurements, and as-built deviations at the
+  selected object;
+- enter actual cable length, reserve, port, breaker, and test result;
+- work fully offline on site, then merge an append-only field journal;
+- show only installation-safe actions by default so a stray touch cannot alter
+  the underlying plan geometry;
+- optional laser/rangefinder and camera-assisted measurements later.
+
+The mobile client should share document, validation, command, and migration
+code with desktop. WaylandForge remains the Linux desktop surface; mobile gets
+a platform-specific shell around the same core instead of forcing a Wayland
+window onto Android.
+
 ## Symbol library: first pack
 
 - distribution board and sub-board;
@@ -208,6 +233,10 @@ schema rather than hardcoded per symbol.
 - Project coordinates: millimetres stored independently from screen pixels.
 - Project format: versioned TOML directory format.
 - Editing: command-based from the first implementation.
+- Every editable feature exposes stable semantic handles shared by mouse,
+  touch, keyboard commands, and agent-driven edits. Handles identify roles such
+  as `move`, `rotate`, `port:eth0`, and `vertex:2`; screen pixels are never part
+  of their identity.
 - First proving document: Garage Draft.
 - No general CAD scope, Bezier router, huge IEC library, AI layer, or schematic
   auto-layout before the core editing loop is proven.

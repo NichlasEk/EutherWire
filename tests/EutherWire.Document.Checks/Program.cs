@@ -1,4 +1,5 @@
 using EutherWire.Document.Commands;
+using EutherWire.Document.Editing;
 using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 
@@ -37,5 +38,11 @@ document.Add(new Conduit(
     25,
     route,
     InstallationMethod.Concealed));
+
+IReadOnlyList<EditHandle> handles = DocumentHandles.Enumerate(document);
+Require(handles.Any(handle => handle.Id.ToString() == "camera-north:move"), "Devices need stable move handles.");
+Require(handles.Any(handle => handle.Id.ToString() == "camera-north:port:eth0"), "Ports need named handles.");
+Require(handles.Any(handle => handle.Id.ToString() == "camera-north-pipe:vertex:1"), "Routes need indexed vertex handles.");
+Require(handles.Select(handle => handle.Id).Distinct().Count() == handles.Count, "Handle IDs must be unique.");
 
 Console.WriteLine("EutherWire document checks passed.");

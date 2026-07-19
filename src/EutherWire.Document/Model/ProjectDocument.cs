@@ -18,20 +18,34 @@ public sealed class ProjectDocument
     public IReadOnlyDictionary<ObjectId, CableRoute> Cables => _cables;
     public IReadOnlyDictionary<ObjectId, Conduit> Conduits => _conduits;
 
-    public void Add(Device device) => AddUnique(_devices, device.Id, device);
-    public void Add(CableRoute cable) => AddUnique(_cables, cable.Id, cable);
-    public void Add(Conduit conduit) => AddUnique(_conduits, conduit.Id, conduit);
+    public void Add(Device device)
+    {
+        RequireUniqueId(device.Id);
+        _devices.Add(device.Id, device);
+    }
+
+    public void Add(CableRoute cable)
+    {
+        RequireUniqueId(cable.Id);
+        _cables.Add(cable.Id, cable);
+    }
+
+    public void Add(Conduit conduit)
+    {
+        RequireUniqueId(conduit.Id);
+        _conduits.Add(conduit.Id, conduit);
+    }
 
     public Device RequireDevice(ObjectId id) =>
         _devices.TryGetValue(id, out Device? device)
             ? device
             : throw new KeyNotFoundException($"Device '{id}' does not exist.");
 
-    private static void AddUnique<T>(Dictionary<ObjectId, T> collection, ObjectId id, T value)
+    private void RequireUniqueId(ObjectId id)
     {
-        if (!collection.TryAdd(id, value))
+        if (_devices.ContainsKey(id) || _cables.ContainsKey(id) || _conduits.ContainsKey(id))
         {
-            throw new InvalidOperationException($"Object ID '{id}' already exists in this collection.");
+            throw new InvalidOperationException($"Object ID '{id}' already exists in this document.");
         }
     }
 }

@@ -22,6 +22,16 @@ For an existing clone:
 git submodule update --init --recursive
 ```
 
+Build and run the current native prototype inside a Wayland session:
+
+```sh
+dotnet build src/EutherWire.App/EutherWire.App.csproj
+dotnet run --project src/EutherWire.App --no-build
+```
+
+Use the middle or right mouse button to pan and the wheel to zoom around the
+pointer. Yellow object handles and blue route-vertex handles are draggable.
+
 ## Status
 
 The repository has entered checkpoint 1: architecture is fixed and the
