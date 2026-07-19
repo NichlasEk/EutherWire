@@ -8,14 +8,17 @@ using EutherWire.Document.Templates;
 using SystemRegisIII.WaylandForge.App;
 using SystemRegisIII.WaylandForge.Ui;
 
-ProjectDocument startupDocument = args.Length > 0
-    ? ProjectToml.Load(args[0])
+string? startupDirectory = args.Length > 0
+    ? args[0]
     : Directory.Exists(Path.Combine("examples", "garage.eutherwire"))
-        ? ProjectToml.Load(Path.Combine("examples", "garage.eutherwire"))
-        : ProjectTemplates.CreateGarageDraft();
+        ? Path.Combine("examples", "garage.eutherwire")
+        : null;
+ProjectDocument startupDocument = startupDirectory is not null
+    ? ProjectToml.Load(startupDirectory)
+    : ProjectTemplates.CreateGarageDraft();
 
 return ForgeApplicationHost.Run(
-    new EutherWireApplication(startupDocument),
+    new EutherWireApplication(startupDocument, startupDirectory),
     new ForgeWindowOptions(1280, 800, $"EutherWire - {startupDocument.Name}"));
 
 internal sealed class EutherWireApplication : IForgeApplication
@@ -26,20 +29,28 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private readonly CanvasCamera _camera = new();
     private readonly ProjectDocument _document;
+    private readonly string? _projectDirectory;
     private readonly CommandHistory _history = new();
     private PointerState _previousPointer;
     private uint _handledScrollSerial;
     private EditHandleId? _activeHandle;
     private Point2 _dragOrigin;
+    private string _statusMessage = "Ready";
+    private bool _dirty;
 
-    public EutherWireApplication(ProjectDocument document)
+    public EutherWireApplication(ProjectDocument document, string? projectDirectory)
     {
         _document = document;
+        _projectDirectory = projectDirectory;
     }
 
     public void Render(in ForgeFrame frame)
     {
-        HandleEditing(frame);
+        bool chromeAction = HandleChromeActions(frame);
+        if (!chromeAction)
+        {
+            HandleEditing(frame);
+        }
         HandleNavigation(frame);
         SoftwareCanvas canvas = frame.Canvas;
         canvas.Clear(0xff111820);
@@ -104,8 +115,64 @@ internal sealed class EutherWireApplication : IForgeApplication
             if (destination != _dragOrigin)
             {
                 _history.Execute(_document, new MoveEditHandleCommand(completed, destination));
+                _dirty = true;
+                _statusMessage = $"Moved {completed}";
             }
             _activeHandle = null;
+        }
+    }
+
+    private bool HandleChromeActions(in ForgeFrame frame)
+    {
+        PointerState pointer = frame.Pointer;
+        if (!pointer.LeftPressed || _previousPointer.LeftPressed)
+        {
+            return false;
+        }
+
+        int inspectorX = Math.Max(ToolbarWidth + 1, frame.Canvas.Width - InspectorWidth);
+        if (ButtonRect(inspectorX, 0).Contains(pointer.X, pointer.Y))
+        {
+            SaveProject();
+            return true;
+        }
+        if (ButtonRect(inspectorX, 1).Contains(pointer.X, pointer.Y))
+        {
+            if (_history.Undo(_document))
+            {
+                _dirty = true;
+                _statusMessage = "Undo";
+            }
+            return true;
+        }
+        if (ButtonRect(inspectorX, 2).Contains(pointer.X, pointer.Y))
+        {
+            if (_history.Redo(_document))
+            {
+                _dirty = true;
+                _statusMessage = "Redo";
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private void SaveProject()
+    {
+        if (_projectDirectory is null)
+        {
+            _statusMessage = "No project directory; start EutherWire with a .eutherwire path";
+            return;
+        }
+        try
+        {
+            ProjectToml.Save(_projectDirectory, _document);
+            _dirty = false;
+            _statusMessage = $"Saved {Path.Combine(_projectDirectory, ProjectToml.FileName)}";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _statusMessage = $"Save failed: {exception.Message}";
         }
     }
 
@@ -247,12 +314,29 @@ internal sealed class EutherWireApplication : IForgeApplication
         canvas.DrawText(inspectorX + 18, 60, $"Handle: {_activeHandle?.ToString() ?? "none"}", 0xff9eb0bb);
         canvas.DrawText(inspectorX + 18, 86, $"Objects: {_document.Devices.Count + _document.Cables.Count + _document.Conduits.Count}", 0xff9eb0bb);
         canvas.DrawText(inspectorX + 18, 112, $"Undo: {_history.UndoCount}   Redo: {_history.RedoCount}", 0xff9eb0bb);
+        DrawChromeButton(canvas, ButtonRect(inspectorX, 0), "SAVE", _projectDirectory is not null);
+        DrawChromeButton(canvas, ButtonRect(inspectorX, 1), "UNDO", _history.UndoCount > 0);
+        DrawChromeButton(canvas, ButtonRect(inspectorX, 2), "REDO", _history.RedoCount > 0);
+        canvas.DrawText(inspectorX + 18, 202, _dirty ? "MODIFIED" : "SAVED", _dirty ? 0xffffcc66 : 0xff61e294);
+        canvas.DrawText(inspectorX + 18, 226, _statusMessage, 0xff9eb0bb);
 
         canvas.FillRect(ToolbarWidth, work.Bottom, work.Width, StatusHeight, 0xff0b1117);
         Point2 documentPoint = _camera.ScreenToDocument(pointer.X, pointer.Y);
         canvas.DrawText(ToolbarWidth + 12, work.Bottom + 10,
             $"X {documentPoint.X:0} mm   Y {documentPoint.Y:0} mm   Zoom {_camera.PixelsPerMillimetre * 1000:0} px/m   MMB/RMB pan   Wheel zoom",
             0xff91a6b3);
+    }
+
+    private static RectI ButtonRect(int inspectorX, int index) =>
+        new(inspectorX + 18 + index * 78, 146, 68, 32);
+
+    private static void DrawChromeButton(SoftwareCanvas canvas, RectI rect, string label, bool enabled)
+    {
+        uint border = enabled ? 0xff63d4ff : 0xff34434d;
+        uint text = enabled ? 0xffccebf7 : 0xff667680;
+        canvas.FillRect(rect.X, rect.Y, rect.Width, rect.Height, 0xff15212a);
+        canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, border);
+        canvas.DrawText(rect.X + 14, rect.Y + 12, label, text);
     }
 
     private static (double Width, double Height, uint Color) DeviceStyle(DeviceKind kind) => kind switch
