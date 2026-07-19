@@ -160,6 +160,10 @@ Acceptance criteria:
 - zoom remains anchored under the pointer;
 - rendering the same document and viewport produces the same pixel hash.
 
+Deterministic document-space SVG export is implemented as the vector export
+foundation. Desktop PNG export and a render hash still remain for this
+checkpoint.
+
 ## Checkpoint 3: intelligent connections
 
 - typed device ports;

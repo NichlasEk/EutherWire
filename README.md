@@ -50,6 +50,7 @@ dotnet run --project src/EutherWire.Cli -- insert-vertex examples/garage.eutherw
 dotnet run --project src/EutherWire.Cli -- delete-vertex examples/garage.eutherwire camera-north-pipe 1
 dotnet run --project src/EutherWire.Cli -- configure examples/garage.eutherwire 10 1000
 dotnet run --project src/EutherWire.Cli -- install examples/garage.eutherwire camera-north-cat6 tested 8200
+dotnet run --project src/EutherWire.Cli -- export-svg examples/garage.eutherwire garage.svg
 ```
 
 `project.toml` writes are deterministic and atomic. A save/load/save round trip
@@ -60,6 +61,11 @@ Geometry and properties both have stable semantic addresses. For example,
 `camera-north-pipe:vertex:1` moves a route point while
 `camera-north-cat6:property:actual_length_mm` edits installation data through
 the same undoable command layer used by the desktop UI.
+
+SVG export is generated directly from document coordinates with stable object
+IDs and deterministic ordering. It is independent of the current desktop zoom,
+selection, and window size, making it suitable for Git diffs and later PDF
+output.
 
 ## Status
 

@@ -1,6 +1,8 @@
+using System.Xml.Linq;
 using EutherWire.Document.Analysis;
 using EutherWire.Document.Commands;
 using EutherWire.Document.Editing;
+using EutherWire.Document.Export;
 using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 using EutherWire.Document.Serialization;
@@ -198,6 +200,13 @@ propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(gara
 Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).InstallationStatus == InstallationStatus.Tested, "Property handles must create real document commands.");
 Require(propertyHistory.Undo(garageDocument), "Property-handle edits must be undoable.");
 Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).InstallationStatus == InstallationStatus.Planned, "Property undo must restore the previous value.");
+
+string garageSvg = SvgProjectExporter.Export(garageDocument);
+Require(SvgProjectExporter.Export(garageDocument) == garageSvg, "SVG export must be deterministic.");
+XDocument svgXml = XDocument.Parse(garageSvg);
+XNamespace svgNamespace = "http://www.w3.org/2000/svg";
+Require(svgXml.Descendants(svgNamespace + "polyline").Any(element => (string?)element.Attribute("id") == "camera-north-cat6"), "SVG export must contain cable geometry with stable object IDs.");
+Require(svgXml.Descendants(svgNamespace + "g").Any(element => (string?)element.Attribute("id") == "camera-north"), "SVG export must contain device symbols with stable object IDs.");
 
 var invalid = new ProjectDocument("Analysis diagnostics");
 ObjectId mainsId = ObjectId.Parse("mains");
