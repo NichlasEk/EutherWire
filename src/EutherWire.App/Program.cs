@@ -43,6 +43,8 @@ internal sealed class EutherWireApplication : IForgeApplication
     private PortReference? _draftFrom;
     private PortReference? _draftTo;
     private Point2 _draftPointer;
+    private UiContext? _ui;
+    private DeviceKind _placementKind = DeviceKind.JunctionBox;
 
     public EutherWireApplication(ProjectDocument document, string? projectDirectory)
     {
@@ -52,6 +54,8 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     public void Render(in ForgeFrame frame)
     {
+        _ui ??= new UiContext(frame.Canvas, UiTheme.Default);
+        _ui.BeginFrame(frame.Pointer, _previousPointer, frame.TextInput, frame.ScrollInput);
         int canvasRight = Math.Max(ToolbarWidth + 1, frame.Canvas.Width - InspectorWidth);
         int canvasBottom = Math.Max(1, frame.Canvas.Height - StatusHeight);
         var work = new RectI(ToolbarWidth, 0, canvasRight - ToolbarWidth, canvasBottom);
@@ -234,13 +238,8 @@ internal sealed class EutherWireApplication : IForgeApplication
     {
         Point2 snapped = new(Math.Round(position.X / 100) * 100, Math.Round(position.Y / 100) * 100);
         ObjectId id = ObjectId.Parse($"junction-{Guid.NewGuid():N}");
-        int number = _document.Devices.Values.Count(device => device.Kind == DeviceKind.JunctionBox) + 1;
-        var device = new Device(
-            id,
-            DeviceKind.JunctionBox,
-            snapped,
-            $"DOSA-{number:00}",
-            [new Port("generic", PortKind.Generic, new Point2(0, 0))]);
+        int number = _document.Devices.Values.Count(device => device.Kind == _placementKind) + 1;
+        var device = CreatePlacedDevice(id, snapped, number);
         _history.Execute(_document, new AddDeviceCommand(device));
         _selectedObjectId = id;
         _dirty = true;
@@ -281,6 +280,46 @@ internal sealed class EutherWireApplication : IForgeApplication
             CancelDraft("Draft cancelled");
             return true;
         }
+        if (_activeTool == ToolKind.PlaceDevice)
+        {
+            for (int index = 0; index < PlacementKinds.Length; index++)
+            {
+                if (SymbolRect(inspectorX, index).Contains(pointer.X, pointer.Y))
+                {
+                    _placementKind = PlacementKinds[index];
+                    _statusMessage = $"Place: {_placementKind}";
+                    return true;
+                }
+            }
+        }
+        if (_draftPoints.Count == 0 && _selectedObjectId is ObjectId selected)
+        {
+            if (DeleteRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                DeleteSelection(selected);
+                return true;
+            }
+            if (_document.Cables.TryGetValue(selected, out CableRoute? cable) && PropertyMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                CycleCableKind(cable, -1);
+                return true;
+            }
+            if (_document.Cables.TryGetValue(selected, out cable) && PropertyPlusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                CycleCableKind(cable, 1);
+                return true;
+            }
+            if (_document.Conduits.TryGetValue(selected, out Conduit? conduit) && PropertyMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                SetConduitDiameter(conduit, -1);
+                return true;
+            }
+            if (_document.Conduits.TryGetValue(selected, out conduit) && PropertyPlusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                SetConduitDiameter(conduit, 1);
+                return true;
+            }
+        }
         if (ButtonRect(inspectorX, 0).Contains(pointer.X, pointer.Y))
         {
             SaveProject();
@@ -291,6 +330,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             if (_history.Undo(_document))
             {
                 EnsureSelectionExists();
+                SyncSelectedLabelEditor();
                 _dirty = true;
                 _statusMessage = "Undo";
             }
@@ -301,12 +341,48 @@ internal sealed class EutherWireApplication : IForgeApplication
             if (_history.Redo(_document))
             {
                 EnsureSelectionExists();
+                SyncSelectedLabelEditor();
                 _dirty = true;
                 _statusMessage = "Redo";
             }
             return true;
         }
         return false;
+    }
+
+    private void DeleteSelection(ObjectId selected)
+    {
+        try
+        {
+            _history.Execute(_document, new DeleteObjectCommand(selected));
+            _selectedObjectId = null;
+            _dirty = true;
+            _statusMessage = $"Deleted {selected}";
+        }
+        catch (InvalidOperationException exception)
+        {
+            _statusMessage = exception.Message;
+        }
+    }
+
+    private void CycleCableKind(CableRoute cable, int direction)
+    {
+        CableKind[] kinds = Enum.GetValues<CableKind>();
+        int index = (Array.IndexOf(kinds, cable.Kind) + direction + kinds.Length) % kinds.Length;
+        _history.Execute(_document, new SetCableKindCommand(cable.Id, kinds[index]));
+        _dirty = true;
+        _statusMessage = $"Cable type: {kinds[index]}";
+    }
+
+    private void SetConduitDiameter(Conduit conduit, int direction)
+    {
+        double[] diameters = [16, 20, 25, 32, 40, 50, 63, 75, 90, 110];
+        int nearest = Enumerable.Range(0, diameters.Length)
+            .MinBy(index => Math.Abs(diameters[index] - conduit.InnerDiameterMillimetres));
+        int index = Math.Clamp(nearest + direction, 0, diameters.Length - 1);
+        _history.Execute(_document, new SetConduitDiameterCommand(conduit.Id, diameters[index]));
+        _dirty = true;
+        _statusMessage = $"Conduit diameter: {diameters[index]} mm";
     }
 
     private void FinishDraft()
@@ -376,6 +452,25 @@ internal sealed class EutherWireApplication : IForgeApplication
         if (_selectedObjectId is ObjectId selected && !_document.Contains(selected))
         {
             _selectedObjectId = null;
+        }
+    }
+
+    private void SyncSelectedLabelEditor()
+    {
+        if (_ui is null || _selectedObjectId is not ObjectId selected)
+        {
+            return;
+        }
+        string? label = _document.Devices.TryGetValue(selected, out Device? device)
+            ? device.Label
+            : _document.Cables.TryGetValue(selected, out CableRoute? cable)
+                ? cable.Label
+                : _document.Conduits.TryGetValue(selected, out Conduit? conduit)
+                    ? conduit.Label
+                    : null;
+        if (label is not null)
+        {
+            _ui.SetText(new UiId($"inspector.label.{selected}"), label);
         }
     }
 
@@ -639,6 +734,14 @@ internal sealed class EutherWireApplication : IForgeApplication
             DrawChromeButton(canvas, CancelRect(inspectorX), "CANCEL", true);
             canvas.DrawText(inspectorX + 18, 304, $"Draft points: {_draftPoints.Count}", 0xffffcc66);
         }
+        else if (_activeTool == ToolKind.PlaceDevice)
+        {
+            DrawSymbolPalette(canvas, inspectorX);
+        }
+        else if (_selectedObjectId is ObjectId selected)
+        {
+            DrawPropertyControls(canvas, inspectorX, selected);
+        }
 
         canvas.FillRect(ToolbarWidth, work.Bottom, work.Width, StatusHeight, 0xff0b1117);
         Point2 documentPoint = _camera.ScreenToDocument(pointer.X, pointer.Y);
@@ -674,11 +777,71 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
+    private void DrawSymbolPalette(SoftwareCanvas canvas, int inspectorX)
+    {
+        canvas.DrawText(inspectorX + 18, 260, "SYMBOL", 0xff9eb0bb);
+        for (int index = 0; index < PlacementKinds.Length; index++)
+        {
+            DeviceKind kind = PlacementKinds[index];
+            RectI rect = SymbolRect(inspectorX, index);
+            bool active = kind == _placementKind;
+            canvas.FillRect(rect.X, rect.Y, rect.Width, rect.Height, 0xff15212a);
+            canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, active ? 0xffffcc66 : 0xff40515e);
+            canvas.DrawText(rect.X + 8, rect.Y + 12, SymbolLabel(kind), active ? 0xffffcc66 : 0xffa9bbc5);
+        }
+    }
+
+    private void DrawPropertyControls(SoftwareCanvas canvas, int inspectorX, ObjectId selected)
+    {
+        _document.Devices.TryGetValue(selected, out Device? device);
+        _document.Cables.TryGetValue(selected, out CableRoute? cable);
+        _document.Conduits.TryGetValue(selected, out Conduit? conduit);
+        string label = device is not null
+            ? device.Label
+            : cable is not null
+                ? cable.Label
+                : conduit is not null
+                    ? conduit.Label
+                    : string.Empty;
+        canvas.DrawText(inspectorX + 18, 258, "LABEL (ENTER TO APPLY)", 0xff9eb0bb);
+        UiTextBoxResult text = _ui!.TextBox(
+            new UiId($"inspector.label.{selected}"),
+            new RectI(inspectorX + 18, 276, 220, 30),
+            label,
+            "Label",
+            new UiTextBoxOptions(MaxLength: 32));
+        if (text.Submitted && !string.IsNullOrWhiteSpace(text.Text) && text.Text != label)
+        {
+            _history.Execute(_document, new SetObjectLabelCommand(selected, text.Text));
+            _dirty = true;
+            _statusMessage = $"Renamed {selected}";
+        }
+
+        DrawChromeButton(canvas, DeleteRect(inspectorX), "DELETE", true);
+        if (cable is not null)
+        {
+            canvas.DrawText(inspectorX + 18, 356, $"TYPE  {cable.Kind}", 0xff9eb0bb);
+            DrawChromeButton(canvas, PropertyMinusRect(inspectorX), "<", true);
+            DrawChromeButton(canvas, PropertyPlusRect(inspectorX), ">", true);
+        }
+        else if (conduit is not null)
+        {
+            canvas.DrawText(inspectorX + 18, 356, $"DIAMETER  {conduit.InnerDiameterMillimetres:0} mm", 0xff9eb0bb);
+            DrawChromeButton(canvas, PropertyMinusRect(inspectorX), "-", true);
+            DrawChromeButton(canvas, PropertyPlusRect(inspectorX), "+", true);
+        }
+    }
+
     private static RectI ButtonRect(int inspectorX, int index) =>
         new(inspectorX + 18 + index * 78, 146, 68, 32);
 
     private static RectI FinishRect(int inspectorX) => new(inspectorX + 18, 260, 104, 32);
     private static RectI CancelRect(int inspectorX) => new(inspectorX + 134, 260, 104, 32);
+    private static RectI DeleteRect(int inspectorX) => new(inspectorX + 18, 316, 104, 30);
+    private static RectI PropertyMinusRect(int inspectorX) => new(inspectorX + 18, 374, 48, 30);
+    private static RectI PropertyPlusRect(int inspectorX) => new(inspectorX + 76, 374, 48, 30);
+    private static RectI SymbolRect(int inspectorX, int index) =>
+        new(inspectorX + 18 + index % 2 * 112, 282 + index / 2 * 42, 102, 32);
 
     private static void DrawChromeButton(SoftwareCanvas canvas, RectI rect, string label, bool enabled)
     {
@@ -719,6 +882,41 @@ internal sealed class EutherWireApplication : IForgeApplication
         EditHandleKind.Vertex => 0xff63d4ff,
         EditHandleKind.Port => 0xff61e294,
         _ => 0xffd7e0e5,
+    };
+
+    private Device CreatePlacedDevice(ObjectId id, Point2 position, int number)
+    {
+        (string prefix, Port[] ports) = _placementKind switch
+        {
+            DeviceKind.DistributionBoard => ("CENTRAL", new[] { new Port("feed", PortKind.MainsPower, new Point2(750, 0)) }),
+            DeviceKind.Outlet => ("UTT", new[] { new Port("power", PortKind.MainsPower, new Point2(0, 0)) }),
+            DeviceKind.Camera => ("KAM", new[] { new Port("eth0", PortKind.EthernetPoe, new Point2(-350, 0)) }),
+            DeviceKind.PoeSwitch => ("POE-SW", new[] { new Port("uplink", PortKind.Ethernet, new Point2(-650, 0)), new Port("port-1", PortKind.EthernetPoe, new Point2(0, -350)) }),
+            DeviceKind.AccessPoint => ("AP", new[] { new Port("eth0", PortKind.EthernetPoe, new Point2(0, 300)) }),
+            _ => ("DOSA", new[] { new Port("generic", PortKind.Generic, new Point2(0, 0)) }),
+        };
+        return new Device(id, _placementKind, position, $"{prefix}-{number:00}", ports);
+    }
+
+    private static readonly DeviceKind[] PlacementKinds =
+    [
+        DeviceKind.JunctionBox,
+        DeviceKind.Outlet,
+        DeviceKind.DistributionBoard,
+        DeviceKind.Camera,
+        DeviceKind.PoeSwitch,
+        DeviceKind.AccessPoint,
+    ];
+
+    private static string SymbolLabel(DeviceKind kind) => kind switch
+    {
+        DeviceKind.JunctionBox => "DOSA",
+        DeviceKind.Outlet => "UTTAG",
+        DeviceKind.DistributionBoard => "CENTRAL",
+        DeviceKind.Camera => "KAMERA",
+        DeviceKind.PoeSwitch => "POE-SW",
+        DeviceKind.AccessPoint => "AP",
+        _ => kind.ToString().ToUpperInvariant(),
     };
 
     private enum ToolKind

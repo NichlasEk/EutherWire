@@ -105,6 +105,27 @@ Require(additionHistory.Undo(additions) && !additions.Contains(addedCable.Id), "
 Require(additionHistory.Undo(additions) && !additions.Contains(addedConduit.Id), "Conduit placement must be undoable.");
 Require(additionHistory.Redo(additions) && additionHistory.Redo(additions), "Route placement must be redoable.");
 
+additionHistory.Execute(additions, new SetObjectLabelCommand(addedCable.Id, "FIBER-01"));
+Require(additions.RequireCable(addedCable.Id).Label == "FIBER-01", "Inspector labels must edit document objects.");
+Require(additionHistory.Undo(additions) && additions.RequireCable(addedCable.Id).Label == "CAT6-01", "Label edits must be undoable.");
+additionHistory.Execute(additions, new SetCableKindCommand(addedCable.Id, CableKind.FibreDuplex));
+Require(additions.RequireCable(addedCable.Id).Kind == CableKind.FibreDuplex, "Cable type edits must use commands.");
+additionHistory.Execute(additions, new SetConduitDiameterCommand(addedConduit.Id, 32));
+Require(additions.RequireConduit(addedConduit.Id).InnerDiameterMillimetres == 32, "Conduit diameter edits must use commands.");
+additionHistory.Execute(additions, new DeleteObjectCommand(addedCable.Id));
+Require(!additions.Contains(addedCable.Id), "Delete commands must remove unreferenced objects.");
+Require(additionHistory.Undo(additions) && additions.Contains(addedCable.Id), "Delete commands must be undoable.");
+
+try
+{
+    connectedHistory.Execute(wired, new DeleteObjectCommand(targetId));
+    throw new InvalidOperationException("Connected devices must not be deleted without resolving their cables.");
+}
+catch (InvalidOperationException exception)
+{
+    Require(exception.Message.Contains("connected", StringComparison.Ordinal), "Blocked deletion needs a useful diagnostic.");
+}
+
 string serialized = ProjectToml.Serialize(wired);
 ProjectDocument loaded = ProjectToml.Deserialize(serialized);
 string serializedAgain = ProjectToml.Serialize(loaded);

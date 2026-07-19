@@ -111,6 +111,180 @@ public sealed class MoveEditHandleCommand(EditHandleId handleId, Point2 destinat
     }
 }
 
+public sealed class SetObjectLabelCommand(ObjectId objectId, string label) : IDocumentCommand
+{
+    private string? _previous;
+
+    public string Description => $"Rename {objectId}";
+
+    public void Apply(ProjectDocument document)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(label);
+        _previous ??= GetLabel(document, objectId);
+        SetLabel(document, objectId, label);
+    }
+
+    public void Undo(ProjectDocument document) =>
+        SetLabel(document, objectId, _previous ?? throw new InvalidOperationException("Command has not been applied."));
+
+    private static string GetLabel(ProjectDocument document, ObjectId id)
+    {
+        if (document.Devices.TryGetValue(id, out Device? device)) return device.Label;
+        if (document.Cables.TryGetValue(id, out CableRoute? cable)) return cable.Label;
+        if (document.Conduits.TryGetValue(id, out Conduit? conduit)) return conduit.Label;
+        throw new KeyNotFoundException($"Object '{id}' does not exist.");
+    }
+
+    private static void SetLabel(ProjectDocument document, ObjectId id, string value)
+    {
+        if (document.Devices.TryGetValue(id, out Device? device))
+        {
+            device.Label = value;
+            return;
+        }
+        if (document.Cables.TryGetValue(id, out CableRoute? cable))
+        {
+            document.Replace(cable with { Label = value });
+            return;
+        }
+        if (document.Conduits.TryGetValue(id, out Conduit? conduit))
+        {
+            document.Replace(conduit with { Label = value });
+            return;
+        }
+        throw new KeyNotFoundException($"Object '{id}' does not exist.");
+    }
+}
+
+public sealed class SetDeviceKindCommand(ObjectId deviceId, DeviceKind kind) : IDocumentCommand
+{
+    private DeviceKind? _previous;
+
+    public string Description => $"Set {deviceId} type";
+
+    public void Apply(ProjectDocument document)
+    {
+        Device device = document.RequireDevice(deviceId);
+        _previous ??= device.Kind;
+        device.Kind = kind;
+    }
+
+    public void Undo(ProjectDocument document) =>
+        document.RequireDevice(deviceId).Kind = _previous ?? throw new InvalidOperationException("Command has not been applied.");
+}
+
+public sealed class SetCableKindCommand(ObjectId cableId, CableKind kind) : IDocumentCommand
+{
+    private CableKind? _previous;
+
+    public string Description => $"Set {cableId} cable type";
+
+    public void Apply(ProjectDocument document)
+    {
+        CableRoute cable = document.RequireCable(cableId);
+        _previous ??= cable.Kind;
+        document.Replace(cable with { Kind = kind });
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        CableRoute cable = document.RequireCable(cableId);
+        document.Replace(cable with { Kind = _previous ?? throw new InvalidOperationException("Command has not been applied.") });
+    }
+}
+
+public sealed class SetConduitDiameterCommand(ObjectId conduitId, double diameterMillimetres) : IDocumentCommand
+{
+    private double? _previous;
+
+    public string Description => $"Set {conduitId} diameter";
+
+    public void Apply(ProjectDocument document)
+    {
+        if (!double.IsFinite(diameterMillimetres) || diameterMillimetres <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(diameterMillimetres));
+        }
+        Conduit conduit = document.RequireConduit(conduitId);
+        _previous ??= conduit.InnerDiameterMillimetres;
+        document.Replace(conduit with { InnerDiameterMillimetres = diameterMillimetres });
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        Conduit conduit = document.RequireConduit(conduitId);
+        document.Replace(conduit with { InnerDiameterMillimetres = _previous ?? throw new InvalidOperationException("Command has not been applied.") });
+    }
+}
+
+public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
+{
+    private object? _removed;
+
+    public string Description => $"Delete {objectId}";
+
+    public void Apply(ProjectDocument document)
+    {
+        _removed ??= Capture(document);
+        Remove(document);
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        switch (_removed)
+        {
+            case Device device:
+                document.Add(device);
+                break;
+            case CableRoute cable:
+                document.Add(cable);
+                break;
+            case Conduit conduit:
+                document.Add(conduit);
+                break;
+            default:
+                throw new InvalidOperationException("Command has not been applied.");
+        }
+    }
+
+    private object Capture(ProjectDocument document)
+    {
+        if (document.Devices.TryGetValue(objectId, out Device? device))
+        {
+            if (document.Cables.Values.Any(cable => cable.From?.DeviceId == objectId || cable.To?.DeviceId == objectId))
+            {
+                throw new InvalidOperationException($"Device '{objectId}' is connected to a cable and cannot be deleted.");
+            }
+            return device;
+        }
+        if (document.Cables.TryGetValue(objectId, out CableRoute? cable)) return cable;
+        if (document.Conduits.TryGetValue(objectId, out Conduit? conduit))
+        {
+            if (document.Cables.Values.Any(cable => cable.ConduitId == objectId))
+            {
+                throw new InvalidOperationException($"Conduit '{objectId}' contains a cable and cannot be deleted.");
+            }
+            return conduit;
+        }
+        throw new KeyNotFoundException($"Object '{objectId}' does not exist.");
+    }
+
+    private void Remove(ProjectDocument document)
+    {
+        bool removed = _removed switch
+        {
+            Device => document.RemoveDevice(objectId, out _),
+            CableRoute => document.RemoveCable(objectId, out _),
+            Conduit => document.RemoveConduit(objectId, out _),
+            _ => false,
+        };
+        if (!removed)
+        {
+            throw new InvalidOperationException($"Object '{objectId}' no longer exists.");
+        }
+    }
+}
+
 public sealed class CommandHistory
 {
     private readonly Stack<IDocumentCommand> _undo = [];

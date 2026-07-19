@@ -46,7 +46,7 @@ public sealed class Device
     }
 
     public ObjectId Id { get; }
-    public DeviceKind Kind { get; }
+    public DeviceKind Kind { get; internal set; }
     public Point2 Position { get; internal set; }
     public double RotationDegrees { get; internal set; }
     public string Label { get; set; }
