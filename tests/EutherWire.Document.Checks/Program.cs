@@ -185,7 +185,7 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
-Require(loaded.SchemaVersion == 4 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.SchemaVersion == 5 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
 Require(loaded.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "TOML must preserve installation state.");
 Require(loaded.RequireCable(cableId).ActualLengthMillimetres == 2350, "TOML must preserve actual installed length.");
 Require(loaded.Space.WallThicknessMillimetres == 180 && loaded.Space.CeilingThicknessMillimetres == 300, "TOML must preserve wall and ceiling construction thickness.");
@@ -205,6 +205,9 @@ catch (ProjectFormatException exception)
 ProjectDocument garageDocument = ProjectTemplates.CreateGarageDraft();
 ProjectAnalysis garageAnalysis = ProjectAnalyzer.Analyze(garageDocument);
 Require(garageDocument.Space == SpaceVolume.GarageDefault, "Garage Draft needs a real editable 3D space volume.");
+BuildingOpening garageDoor = garageDocument.RequireOpening(ObjectId.Parse("garage-door-south"));
+Require(garageDoor.Kind == OpeningKind.GarageDoor && garageDoor.Surface == MountingSurface.SouthWallInterior, "Garage Draft needs a first-class garage-door opening on a real wall.");
+Require(garageDoor.WidthMillimetres == 5000 && garageDoor.HeightMillimetres == 2200, "Building openings need exact dimensions.");
 Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).ElevationMillimetres == 2200, "Devices need installation elevation in 3D space.");
 Require(garageDocument.RequireConduit(ObjectId.Parse("camera-north-pipe")).Route.SpatialPoints.All(point => point.Z == 2200), "Routes need per-vertex 3D elevation.");
 Require(garageAnalysis.TotalCableLengthMillimetres == 7400, "Analysis must sum cable geometry in document millimetres.");
@@ -226,6 +229,8 @@ Require(garageProperties.Any(property => property.Id.ToString() == "camera-north
 Require(garageProperties.Any(property => property.Id.ToString() == "camera-north:property:mounting_surface"), "Devices need a semantic mounting-surface handle.");
 PropertyHandleId roomWidthId = PropertyHandleId.Parse("space:property:width_mm");
 Require(garageProperties.Any(property => property.Id == roomWidthId && property.Value == "14000"), "Room dimensions need stable property handles.");
+PropertyHandleId garageDoorWidthId = PropertyHandleId.Parse("garage-door-south:property:width_mm");
+Require(garageProperties.Any(property => property.Id == garageDoorWidthId && property.Value == "5000"), "Building openings need stable dimension property handles.");
 PropertyHandleId routeElevationId = PropertyHandleId.Parse("camera-north-pipe:property:vertex_1_elevation_mm");
 Require(garageProperties.Any(property => property.Id == routeElevationId && property.Value == "2200"), "Every route vertex needs a stable elevation property handle.");
 var propertyHistory = new CommandHistory();
@@ -243,6 +248,9 @@ Require(garageDocument.RequireConduit(ObjectId.Parse("camera-north-pipe")).Route
 propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, roomWidthId, "15000"));
 Require(garageDocument.Space.WidthMillimetres == 15000, "Room size properties must edit the real space volume.");
 Require(propertyHistory.Undo(garageDocument) && garageDocument.Space == SpaceVolume.GarageDefault, "Room dimension changes must be undoable.");
+propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, garageDoorWidthId, "5200"));
+Require(garageDoor.WidthMillimetres == 5200, "Opening dimension properties must edit real geometry.");
+Require(propertyHistory.Undo(garageDocument) && garageDoor.WidthMillimetres == 5000, "Opening dimension edits must be undoable.");
 PropertyHandleId mountingSurfaceId = PropertyHandleId.Parse("camera-north:property:mounting_surface");
 propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, mountingSurfaceId, "north_wall_exterior"));
 Require(garageDocument.RequireDevice(ObjectId.Parse("camera-north")).MountingSurface == MountingSurface.NorthWallExterior, "Mounting-surface handles must attach devices to named building surfaces.");
@@ -261,6 +269,7 @@ Require(SvgProjectExporter.Export(garageDocument) == garageSvg, "SVG export must
 XDocument svgXml = XDocument.Parse(garageSvg);
 XNamespace svgNamespace = "http://www.w3.org/2000/svg";
 Require(svgXml.Descendants(svgNamespace + "polyline").Any(element => (string?)element.Attribute("id") == "camera-north-cat6"), "SVG export must contain cable geometry with stable object IDs.");
+Require(svgXml.Descendants(svgNamespace + "polyline").Any(element => (string?)element.Attribute("id") == "garage-door-south"), "SVG export must contain building openings with stable object IDs.");
 Require(svgXml.Descendants(svgNamespace + "g").Any(element => (string?)element.Attribute("id") == "camera-north"), "SVG export must contain device symbols with stable object IDs.");
 
 byte[] garagePng = PngProjectExporter.Export(garageDocument);
@@ -268,7 +277,7 @@ Require(PngProjectExporter.Export(garageDocument).SequenceEqual(garagePng), "PNG
 Require(garagePng.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }), "PNG export needs a valid PNG signature.");
 Require(BinaryPrimitives.ReadInt32BigEndian(garagePng.AsSpan(16, 4)) == 1600, "Wide projects must use the configured maximum PNG width.");
 Require(BinaryPrimitives.ReadInt32BigEndian(garagePng.AsSpan(20, 4)) > 0, "PNG export needs a positive calculated height.");
-Require(Convert.ToHexString(SHA256.HashData(garagePng)).ToLowerInvariant() == "8c7db562b106a83b69f19e88f42998506b76dea138a667de23c55b1337d5184d", "Garage Draft PNG must retain its reference render hash.");
+Require(Convert.ToHexString(SHA256.HashData(garagePng)).ToLowerInvariant() == "57896fc36da3b5904bbb3a262886f2956af8d8c4aa2b3e510f36524aa3df7319", "Garage Draft PNG must retain its reference render hash.");
 
 var invalid = new ProjectDocument("Analysis diagnostics");
 ObjectId mainsId = ObjectId.Parse("mains");

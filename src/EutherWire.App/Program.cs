@@ -724,7 +724,9 @@ internal sealed class EutherWireApplication : IForgeApplication
                     ? conduit.Label
                     : _document.Annotations.TryGetValue(selected, out Annotation? annotation)
                         ? annotation.Text
-                        : null;
+                        : _document.Openings.TryGetValue(selected, out BuildingOpening? opening)
+                            ? opening.Label
+                            : null;
         if (label is not null)
         {
             _ui.SetText(new UiId($"inspector.label.{selected}"), label);
@@ -842,6 +844,11 @@ internal sealed class EutherWireApplication : IForgeApplication
                 return device.Id;
             }
         }
+        foreach (BuildingOpening opening in _document.Openings.Values.Reverse())
+        {
+            Point2[] edge = OpeningPlanEdge(opening);
+            if (HitRoute(screenX, screenY, edge, 10)) return opening.Id;
+        }
         foreach (CableRoute cable in _document.Cables.Values.Reverse())
         {
             if (HitRoute(screenX, screenY, cable.Route.Points, 8))
@@ -909,6 +916,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     private double HandleElevation(EditHandle handle)
     {
         if (_document.Devices.TryGetValue(handle.Id.ObjectId, out Device? device)) return device.ElevationMillimetres;
+        if (_document.Openings.TryGetValue(handle.Id.ObjectId, out BuildingOpening? opening)) return opening.Centre.Z;
         if (handle.Id.Kind == EditHandleKind.Vertex && handle.Id.Index is int index)
         {
             if (_document.Conduits.TryGetValue(handle.Id.ObjectId, out Conduit? conduit)) return conduit.Route.SpatialPoints[index].Z;
@@ -919,6 +927,11 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private ObjectId? HitObject3D(int screenX, int screenY)
     {
+        foreach (BuildingOpening opening in _document.Openings.Values.Reverse())
+        {
+            Point3[] corners = OpeningCorners(opening);
+            if (HitRoute3D(screenX, screenY, [.. corners, corners[0]], 10)) return opening.Id;
+        }
         foreach (Device device in _document.Devices.Values.Reverse())
         {
             (double x, double y) = _camera3D.Project(new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres));
@@ -985,6 +998,11 @@ internal sealed class EutherWireApplication : IForgeApplication
             Draw3DLine(canvas, ceiling[index], outerCeiling[index], 0xff8b6e43, 1);
         }
         DrawActiveSurface(canvas, space);
+
+        foreach (BuildingOpening opening in _document.Openings.Values)
+        {
+            Draw3DOpening(canvas, opening, _selectedObjectId == opening.Id);
+        }
 
         foreach (Conduit conduit in _document.Conduits.Values)
         {
@@ -1064,6 +1082,36 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
+    private void Draw3DOpening(SoftwareCanvas canvas, BuildingOpening opening, bool selected)
+    {
+        Point3[] corners = OpeningCorners(opening);
+        uint color = selected ? 0xffffcc66 : opening.Kind == OpeningKind.Window ? 0xff78c7e8 : 0xffd8895b;
+        for (int index = 0; index < corners.Length; index++) Draw3DLine(canvas, corners[index], corners[(index + 1) % corners.Length], color, selected ? 5 : 3);
+        Draw3DLine(canvas, corners[0], corners[2], 0xff5f4a3e, 1);
+        Draw3DLine(canvas, corners[1], corners[3], 0xff5f4a3e, 1);
+        (double x, double y) = _camera3D.Project(opening.Centre);
+        canvas.DrawText((int)x - opening.Label.Length * 3, (int)y - 4, opening.Label, color);
+    }
+
+    private static Point3[] OpeningCorners(BuildingOpening opening)
+    {
+        double halfWidth = opening.WidthMillimetres / 2;
+        double halfHeight = opening.HeightMillimetres / 2;
+        bool xAxis = opening.Surface is MountingSurface.NorthWallInterior or MountingSurface.NorthWallExterior or MountingSurface.SouthWallInterior or MountingSurface.SouthWallExterior;
+        return xAxis
+            ? [new(opening.Centre.X - halfWidth, opening.Centre.Y, opening.Centre.Z - halfHeight), new(opening.Centre.X + halfWidth, opening.Centre.Y, opening.Centre.Z - halfHeight), new(opening.Centre.X + halfWidth, opening.Centre.Y, opening.Centre.Z + halfHeight), new(opening.Centre.X - halfWidth, opening.Centre.Y, opening.Centre.Z + halfHeight)]
+            : [new(opening.Centre.X, opening.Centre.Y - halfWidth, opening.Centre.Z - halfHeight), new(opening.Centre.X, opening.Centre.Y + halfWidth, opening.Centre.Z - halfHeight), new(opening.Centre.X, opening.Centre.Y + halfWidth, opening.Centre.Z + halfHeight), new(opening.Centre.X, opening.Centre.Y - halfWidth, opening.Centre.Z + halfHeight)];
+    }
+
+    private static Point2[] OpeningPlanEdge(BuildingOpening opening)
+    {
+        double half = opening.WidthMillimetres / 2;
+        bool xAxis = opening.Surface is MountingSurface.NorthWallInterior or MountingSurface.NorthWallExterior or MountingSurface.SouthWallInterior or MountingSurface.SouthWallExterior;
+        return xAxis
+            ? [new Point2(opening.Centre.X - half, opening.Centre.Y), new Point2(opening.Centre.X + half, opening.Centre.Y)]
+            : [new Point2(opening.Centre.X, opening.Centre.Y - half), new Point2(opening.Centre.X, opening.Centre.Y + half)];
+    }
+
     private void Draw3DRoute(SoftwareCanvas canvas, IReadOnlyList<Point3> points, uint color, int thickness)
     {
         for (int index = 1; index < points.Count; index++) Draw3DLine(canvas, points[index - 1], points[index], color, thickness);
@@ -1137,6 +1185,11 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             (double width, double height, uint color) = DeviceStyle(device.Kind);
             DrawDevice(canvas, device, width, height, color, _selectedObjectId == device.Id);
+        }
+        foreach (BuildingOpening opening in _document.Openings.Values)
+        {
+            Point2[] edge = OpeningPlanEdge(opening);
+            DrawRoute(canvas, edge, _selectedObjectId == opening.Id ? 0xffffcc66 : 0xffd8895b, _selectedObjectId == opening.Id ? 9 : 5);
         }
         foreach (Annotation annotation in _document.Annotations.Values)
         {
@@ -1300,7 +1353,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         if (_selectedObjectId is not ObjectId selected)
         {
             canvas.DrawText(inspectorX + 18, 60, "Selected: none", 0xff9eb0bb);
-            canvas.DrawText(inspectorX + 18, 86, $"Objects: {_document.Devices.Count + _document.Cables.Count + _document.Conduits.Count + _document.Annotations.Count}", 0xff9eb0bb);
+            canvas.DrawText(inspectorX + 18, 86, $"Objects: {_document.Devices.Count + _document.Cables.Count + _document.Conduits.Count + _document.Annotations.Count + _document.Openings.Count}", 0xff9eb0bb);
             canvas.DrawText(inspectorX + 18, 112, $"Undo: {_history.UndoCount}   Redo: {_history.RedoCount}", 0xff9eb0bb);
             return;
         }
@@ -1328,6 +1381,12 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.DrawText(inspectorX + 18, 78, "Annotation", 0xffc7d4dc);
             canvas.DrawText(inspectorX + 18, 100, $"{annotation.Position.X:0}, {annotation.Position.Y:0} mm", 0xff9eb0bb);
         }
+        else if (_document.Openings.TryGetValue(selected, out BuildingOpening? opening))
+        {
+            canvas.DrawText(inspectorX + 18, 78, $"{opening.Kind}  {opening.Label}", 0xffc7d4dc);
+            canvas.DrawText(inspectorX + 18, 100, $"{opening.WidthMillimetres:0} × {opening.HeightMillimetres:0} mm", 0xff9eb0bb);
+            canvas.DrawText(inspectorX + 18, 122, opening.Surface.ToString(), 0xff9eb0bb);
+        }
     }
 
     private void DrawSymbolPalette(SoftwareCanvas canvas, int inspectorX)
@@ -1350,6 +1409,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         _document.Cables.TryGetValue(selected, out CableRoute? cable);
         _document.Conduits.TryGetValue(selected, out Conduit? conduit);
         _document.Annotations.TryGetValue(selected, out Annotation? annotation);
+        _document.Openings.TryGetValue(selected, out BuildingOpening? opening);
         string label = device is not null
             ? device.Label
             : cable is not null
@@ -1358,7 +1418,9 @@ internal sealed class EutherWireApplication : IForgeApplication
                     ? conduit.Label
                     : annotation is not null
                         ? annotation.Text
-                        : string.Empty;
+                        : opening is not null
+                            ? opening.Label
+                            : string.Empty;
         canvas.DrawText(inspectorX + 18, 258, "LABEL (ENTER TO APPLY)", 0xff9eb0bb);
         UiTextBoxResult text = _ui!.TextBox(
             new UiId($"inspector.label.{selected}"),

@@ -29,6 +29,13 @@ public static class SvgProjectExporter
         }
         svg.Append("  </g>\n");
 
+        svg.Append("  <g id=\"openings\" fill=\"none\" stroke=\"#c56f42\" stroke-width=\"90\">\n");
+        foreach (BuildingOpening opening in document.Openings.Values.OrderBy(item => item.Id.Value, StringComparer.Ordinal))
+        {
+            Polyline(svg, opening.Id, ProjectExportLayout.OpeningPlanEdge(opening));
+        }
+        svg.Append("  </g>\n");
+
         svg.Append("  <g id=\"cables\" fill=\"none\" stroke=\"#159dcc\" stroke-width=\"28\" stroke-linejoin=\"round\">\n");
         foreach (CableRoute cable in document.Cables.Values.OrderBy(item => item.Id.Value, StringComparer.Ordinal))
         {

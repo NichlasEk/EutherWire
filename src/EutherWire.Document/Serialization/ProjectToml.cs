@@ -31,6 +31,10 @@ public static class ProjectToml
                 WallThicknessMillimetres = document.Space.WallThicknessMillimetres,
                 CeilingThicknessMillimetres = document.Space.CeilingThicknessMillimetres,
             },
+            Openings = document.Openings.Values
+                .OrderBy(opening => opening.Id.Value, StringComparer.Ordinal)
+                .Select(ToFile)
+                .ToList(),
             Devices = document.Devices.Values
                 .OrderBy(device => device.Id.Value, StringComparer.Ordinal)
                 .Select(ToFile)
@@ -73,9 +77,9 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion is < 1 or > 4)
+        if (file.Project.SchemaVersion is < 1 or > 5)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 4.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 5.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
@@ -97,6 +101,17 @@ public static class ProjectToml
                 Positive(file.Space.HeightMillimetres, "space.height_mm"),
                 Positive(file.Space.WallThicknessMillimetres, "space.wall_thickness_mm"),
                 Positive(file.Space.CeilingThicknessMillimetres, "space.ceiling_thickness_mm")).Validate();
+        }
+        foreach (OpeningFile source in file.Openings)
+        {
+            document.Add(new BuildingOpening(
+                Id(source.Id, "opening"),
+                ParseEnum<OpeningKind>(source.Kind, "opening kind"),
+                ParseEnum<MountingSurface>(source.Surface, "opening surface"),
+                SpatialPoint(source.Centre, $"openings[{source.Id}].centre"),
+                Positive(source.WidthMillimetres, $"openings[{source.Id}].width_mm"),
+                Positive(source.HeightMillimetres, $"openings[{source.Id}].height_mm"),
+                RequireText(source.Label, $"openings[{source.Id}].label")));
         }
         foreach (DeviceFile source in file.Devices)
         {
@@ -181,6 +196,17 @@ public static class ProjectToml
             Kind = Name(port.Kind),
             Position = [port.Position.X, port.Position.Y],
         }).ToList(),
+    };
+
+    private static OpeningFile ToFile(BuildingOpening opening) => new()
+    {
+        Id = opening.Id.Value,
+        Kind = Name(opening.Kind),
+        Surface = Name(opening.Surface),
+        Centre = [opening.Centre.X, opening.Centre.Y, opening.Centre.Z],
+        WidthMillimetres = opening.WidthMillimetres,
+        HeightMillimetres = opening.HeightMillimetres,
+        Label = opening.Label,
     };
 
     private static ConduitFile ToFile(Conduit conduit) => new()
@@ -361,6 +387,9 @@ public static class ProjectToml
         [JsonPropertyName("space")]
         public SpaceFile? Space { get; set; }
 
+        [JsonPropertyName("openings")]
+        public List<OpeningFile> Openings { get; set; } = [];
+
         [JsonPropertyName("devices")]
         public List<DeviceFile> Devices { get; set; } = [];
 
@@ -438,6 +467,30 @@ public static class ProjectToml
 
         [JsonPropertyName("ports")]
         public List<PortFile> Ports { get; set; } = [];
+    }
+
+    private sealed class OpeningFile
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("kind")]
+        public string? Kind { get; set; }
+
+        [JsonPropertyName("surface")]
+        public string? Surface { get; set; }
+
+        [JsonPropertyName("centre")]
+        public double[] Centre { get; set; } = [];
+
+        [JsonPropertyName("width_mm")]
+        public double WidthMillimetres { get; set; }
+
+        [JsonPropertyName("height_mm")]
+        public double HeightMillimetres { get; set; }
+
+        [JsonPropertyName("label")]
+        public string? Label { get; set; }
     }
 
     private sealed class PortFile

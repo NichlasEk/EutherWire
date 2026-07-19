@@ -19,7 +19,7 @@ The intended workflow is:
 
 ## Implemented foundation
 
-- Project schema 4 stores a `SpaceVolume` with origin, width, depth, height,
+- Project schema 5 stores a `SpaceVolume` with origin, width, depth, height,
   wall thickness, and ceiling thickness.
 - Room dimensions are editable in the 3D inspector and through stable property
   handles; edits use the shared undo/redo command history.
@@ -35,6 +35,10 @@ The intended workflow is:
   and ISO/NORTH/EAST/SOUTH/WEST presets through the UI or `F10`.
 - Surface unprojection follows the rotated camera, so editing remains active
   after changing viewpoint.
+- Garage doors, ordinary doors, windows, and penetrations are first-class
+  wall-opening kinds with wall surface, 3D centre, width, height, label,
+  stable move/property handles, and deterministic TOML/SVG/PNG output.
+- Garage Draft contains a 5,000 × 2,200 mm garage door on the south wall.
 - The renderer shows distinct inner and outer wall shells and the ceiling slab.
 - The active mounting surface has a yellow 3D outline.
 - Existing devices and elevated routes render inside the garage shell.
@@ -67,9 +71,10 @@ All of these remain command-based and addressable without screen coordinates.
 
 ### Garage geometry
 
-- doors, windows, beams, pillars, workbench, and vehicle clearance volumes;
+- interactive opening placement and resize handles;
+- beams, pillars, workbench, and vehicle clearance volumes;
 - imported measured floor plan as a calibration layer;
-- wall openings and cable penetrations as first-class objects;
+- subtract opening areas from filled wall rendering;
 - collision and clearance diagnostics;
 - translucent wall hiding so routes behind a wall remain understandable.
 

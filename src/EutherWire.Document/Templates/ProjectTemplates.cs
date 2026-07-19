@@ -8,6 +8,14 @@ public static class ProjectTemplates
     public static ProjectDocument CreateGarageDraft()
     {
         var document = new ProjectDocument("Garage Draft");
+        document.Add(new BuildingOpening(
+            ObjectId.Parse("garage-door-south"),
+            OpeningKind.GarageDoor,
+            MountingSurface.SouthWallInterior,
+            new Point3(5500, 2500, 1100),
+            5000,
+            2200,
+            "GARAGEPORT"));
         document.Add(new Device(
             ObjectId.Parse("main-board"),
             DeviceKind.DistributionBoard,

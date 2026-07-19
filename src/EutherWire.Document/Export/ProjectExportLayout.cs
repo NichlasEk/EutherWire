@@ -41,6 +41,10 @@ public static class ProjectExportLayout
             foreach (Point2 point in cable.Route.Points) Include(point);
         }
         foreach (Annotation annotation in document.Annotations.Values) Include(annotation.Position);
+        foreach (BuildingOpening opening in document.Openings.Values)
+        {
+            foreach (Point2 point in OpeningPlanEdge(opening)) Include(point);
+        }
         foreach (Device device in document.Devices.Values)
         {
             ExportDeviceStyle style = DeviceStyle(device.Kind);
@@ -60,4 +64,13 @@ public static class ProjectExportLayout
         DeviceKind.Camera => new(700, 500, 0xff258a4d, "#258a4d"),
         _ => new(800, 600, 0xff667985, "#667985"),
     };
+
+    public static Point2[] OpeningPlanEdge(BuildingOpening opening)
+    {
+        double half = opening.WidthMillimetres / 2;
+        bool xAxis = opening.Surface is MountingSurface.NorthWallInterior or MountingSurface.NorthWallExterior or MountingSurface.SouthWallInterior or MountingSurface.SouthWallExterior;
+        return xAxis
+            ? [new Point2(opening.Centre.X - half, opening.Centre.Y), new Point2(opening.Centre.X + half, opening.Centre.Y)]
+            : [new Point2(opening.Centre.X, opening.Centre.Y - half), new Point2(opening.Centre.X, opening.Centre.Y + half)];
+    }
 }

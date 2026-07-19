@@ -99,6 +99,21 @@ public sealed class AddAnnotationCommand(Annotation annotation) : IDocumentComma
     }
 }
 
+public sealed class AddOpeningCommand(BuildingOpening opening) : IDocumentCommand
+{
+    public string Description => $"Add {opening.Id}";
+
+    public void Apply(ProjectDocument document) => document.Add(opening);
+
+    public void Undo(ProjectDocument document)
+    {
+        if (!document.RemoveOpening(opening.Id, out _))
+        {
+            throw new InvalidOperationException($"Opening '{opening.Id}' no longer exists.");
+        }
+    }
+}
+
 public sealed class MoveEditHandleCommand(EditHandleId handleId, Point2 destination) : IDocumentCommand
 {
     private Point2 _origin;
@@ -172,6 +187,7 @@ public sealed class SetObjectLabelCommand(ObjectId objectId, string label) : IDo
         if (document.Cables.TryGetValue(id, out CableRoute? cable)) return cable.Label;
         if (document.Conduits.TryGetValue(id, out Conduit? conduit)) return conduit.Label;
         if (document.Annotations.TryGetValue(id, out Annotation? annotation)) return annotation.Text;
+        if (document.Openings.TryGetValue(id, out BuildingOpening? opening)) return opening.Label;
         throw new KeyNotFoundException($"Object '{id}' does not exist.");
     }
 
@@ -195,6 +211,11 @@ public sealed class SetObjectLabelCommand(ObjectId objectId, string label) : IDo
         if (document.Annotations.TryGetValue(id, out Annotation? annotation))
         {
             annotation.Text = value;
+            return;
+        }
+        if (document.Openings.TryGetValue(id, out BuildingOpening? opening))
+        {
+            opening.Label = value;
             return;
         }
         throw new KeyNotFoundException($"Object '{id}' does not exist.");
@@ -268,6 +289,7 @@ public sealed class SetSpaceVolumeCommand(SpaceVolume volume) : IDocumentCommand
 {
     private SpaceVolume? _previous;
     private Dictionary<ObjectId, Point3>? _previousMountedPositions;
+    private Dictionary<ObjectId, Point3>? _previousOpeningPositions;
 
     public string Description => "Set room dimensions";
 
@@ -280,11 +302,17 @@ public sealed class SetSpaceVolumeCommand(SpaceVolume volume) : IDocumentCommand
             _previousMountedPositions = document.Devices.Values
                 .Where(device => device.MountingSurface != MountingSurface.Free)
                 .ToDictionary(device => device.Id, device => new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres));
+            _previousOpeningPositions = document.Openings.Values.ToDictionary(opening => opening.Id, opening => opening.Centre);
         }
         document.Space = volume;
         foreach (Device device in document.Devices.Values.Where(device => device.MountingSurface != MountingSurface.Free).ToArray())
         {
             var handle = new EditHandleId(device.Id, EditHandleKind.Move);
+            DocumentHandleEditor.SetSpatialPosition(document, handle, DocumentHandleEditor.RequireSpatialPosition(document, handle));
+        }
+        foreach (BuildingOpening opening in document.Openings.Values.ToArray())
+        {
+            var handle = new EditHandleId(opening.Id, EditHandleKind.Move);
             DocumentHandleEditor.SetSpatialPosition(document, handle, DocumentHandleEditor.RequireSpatialPosition(document, handle));
         }
     }
@@ -296,6 +324,46 @@ public sealed class SetSpaceVolumeCommand(SpaceVolume volume) : IDocumentCommand
         {
             DocumentHandleEditor.SetSpatialPosition(document, new EditHandleId(id, EditHandleKind.Move), position);
         }
+        foreach ((ObjectId id, Point3 position) in _previousOpeningPositions ?? throw new InvalidOperationException("Command has not been applied."))
+        {
+            DocumentHandleEditor.SetSpatialPosition(document, new EditHandleId(id, EditHandleKind.Move), position);
+        }
+    }
+}
+
+public sealed class SetOpeningGeometryCommand(
+    ObjectId openingId,
+    OpeningKind kind,
+    MountingSurface surface,
+    Point3 centre,
+    double widthMillimetres,
+    double heightMillimetres) : IDocumentCommand
+{
+    private (OpeningKind Kind, MountingSurface Surface, Point3 Centre, double Width, double Height)? _previous;
+
+    public string Description => $"Edit {openingId}";
+
+    public void Apply(ProjectDocument document)
+    {
+        BuildingOpening opening = document.RequireOpening(openingId);
+        _previous ??= (opening.Kind, opening.Surface, opening.Centre, opening.WidthMillimetres, opening.HeightMillimetres);
+        ApplyValues(document, opening, kind, surface, centre, widthMillimetres, heightMillimetres);
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        var previous = _previous ?? throw new InvalidOperationException("Command has not been applied.");
+        ApplyValues(document, document.RequireOpening(openingId), previous.Kind, previous.Surface, previous.Centre, previous.Width, previous.Height);
+    }
+
+    private static void ApplyValues(ProjectDocument document, BuildingOpening opening, OpeningKind nextKind, MountingSurface nextSurface, Point3 nextCentre, double width, double height)
+    {
+        _ = new BuildingOpening(opening.Id, nextKind, nextSurface, nextCentre, width, height, opening.Label);
+        opening.Kind = nextKind;
+        opening.Surface = nextSurface;
+        opening.Centre = MountingSurfaceGeometry.Constrain(document.Space, nextSurface, nextCentre);
+        opening.WidthMillimetres = width;
+        opening.HeightMillimetres = height;
     }
 }
 
@@ -415,6 +483,9 @@ public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
             case Annotation annotation:
                 document.Add(annotation);
                 break;
+            case BuildingOpening opening:
+                document.Add(opening);
+                break;
             default:
                 throw new InvalidOperationException("Command has not been applied.");
         }
@@ -440,6 +511,7 @@ public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
             return conduit;
         }
         if (document.Annotations.TryGetValue(objectId, out Annotation? annotation)) return annotation;
+        if (document.Openings.TryGetValue(objectId, out BuildingOpening? opening)) return opening;
         throw new KeyNotFoundException($"Object '{objectId}' does not exist.");
     }
 
@@ -451,6 +523,7 @@ public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
             CableRoute => document.RemoveCable(objectId, out _),
             Conduit => document.RemoveConduit(objectId, out _),
             Annotation => document.RemoveAnnotation(objectId, out _),
+            BuildingOpening => document.RemoveOpening(objectId, out _),
             _ => false,
         };
         if (!removed)

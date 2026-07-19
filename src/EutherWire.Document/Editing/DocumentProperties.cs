@@ -1,5 +1,6 @@
 using System.Globalization;
 using EutherWire.Document.Commands;
+using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 
 namespace EutherWire.Document.Editing;
@@ -59,6 +60,17 @@ public static class DocumentProperties
             properties.Add(Number(device.Id, "elevation_mm", device.ElevationMillimetres));
             properties.Add(Choice(device.Id, "mounting_surface", device.MountingSurface));
         }
+        foreach (BuildingOpening opening in document.Openings.Values)
+        {
+            properties.Add(Text(opening.Id, "label", opening.Label));
+            properties.Add(Choice(opening.Id, "kind", opening.Kind));
+            properties.Add(Choice(opening.Id, "surface", opening.Surface));
+            properties.Add(Number(opening.Id, "centre_x_mm", opening.Centre.X));
+            properties.Add(Number(opening.Id, "centre_y_mm", opening.Centre.Y));
+            properties.Add(Number(opening.Id, "centre_z_mm", opening.Centre.Z));
+            properties.Add(Number(opening.Id, "width_mm", opening.WidthMillimetres));
+            properties.Add(Number(opening.Id, "height_mm", opening.HeightMillimetres));
+        }
         foreach (CableRoute cable in document.Cables.Values)
         {
             properties.Add(Text(cable.Id, "label", cable.Label));
@@ -102,6 +114,7 @@ public static class DocumentProperties
                 new SetDeviceElevationCommand(id.ObjectId, ParseNonNegative(value)),
             "mounting_surface" when document.Devices.ContainsKey(id.ObjectId) =>
                 new SetDeviceMountingSurfaceCommand(id.ObjectId, ParseChoice<MountingSurface>(value)),
+            _ when document.Openings.ContainsKey(id.ObjectId) => CreateOpeningCommand(document, id, value),
             "installation_status" => new SetCableInstallationCommand(
                 id.ObjectId,
                 ParseChoice<InstallationStatus>(value),
@@ -165,6 +178,30 @@ public static class DocumentProperties
             _ => throw new InvalidOperationException($"Unknown space property '{name}'."),
         };
         return new SetSpaceVolumeCommand(changed);
+    }
+
+    private static IDocumentCommand CreateOpeningCommand(ProjectDocument document, PropertyHandleId id, string value)
+    {
+        BuildingOpening opening = document.RequireOpening(id.ObjectId);
+        OpeningKind kind = id.Name == "kind" ? ParseChoice<OpeningKind>(value) : opening.Kind;
+        MountingSurface surface = id.Name == "surface" ? ParseChoice<MountingSurface>(value) : opening.Surface;
+        double x = id.Name == "centre_x_mm" ? ParseFinite(value) : opening.Centre.X;
+        double y = id.Name == "centre_y_mm" ? ParseFinite(value) : opening.Centre.Y;
+        double z = id.Name == "centre_z_mm" ? ParseNonNegative(value) : opening.Centre.Z;
+        double width = id.Name == "width_mm" ? ParsePositive(value) : opening.WidthMillimetres;
+        double height = id.Name == "height_mm" ? ParsePositive(value) : opening.HeightMillimetres;
+        if (id.Name is not ("kind" or "surface" or "centre_x_mm" or "centre_y_mm" or "centre_z_mm" or "width_mm" or "height_mm"))
+        {
+            throw new InvalidOperationException($"Unknown opening property '{id.Name}'.");
+        }
+        return new SetOpeningGeometryCommand(opening.Id, kind, surface, new Point3(x, y, z), width, height);
+    }
+
+    private static double ParseFinite(string value)
+    {
+        double number = double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture);
+        if (!double.IsFinite(number)) throw new ArgumentOutOfRangeException(nameof(value));
+        return number;
     }
 
     private static double ParsePositive(string value)

@@ -196,7 +196,7 @@ static int Move3D(string projectDirectory, string handleText, string xText, stri
 static void PrintSummary(ProjectDocument document)
 {
     Console.WriteLine($"OK schema={document.SchemaVersion} name={document.Name}");
-    Console.WriteLine($"devices={document.Devices.Count} conduits={document.Conduits.Count} cables={document.Cables.Count} annotations={document.Annotations.Count} handles={DocumentHandles.Enumerate(document).Count}");
+    Console.WriteLine($"devices={document.Devices.Count} openings={document.Openings.Count} conduits={document.Conduits.Count} cables={document.Cables.Count} annotations={document.Annotations.Count} handles={DocumentHandles.Enumerate(document).Count}");
 }
 
 static int PrintReport(ProjectDocument document)

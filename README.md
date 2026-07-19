@@ -45,6 +45,10 @@ orbit, middle mouse button to pan, and wheel to zoom. The `CAMERA` control or
 `F10` cycles ISO, NORTH, EAST, SOUTH, and WEST views. See
 [docs/garage-3d-plan.md](docs/garage-3d-plan.md) for the remaining roadmap.
 
+Garage Draft now includes a first-class 5,000 × 2,200 mm garage-door opening
+on the south wall. Openings retain their wall, 3D centre, dimensions, stable
+handles, and IDs through TOML, SVG, and PNG export.
+
 This initializes WaylandForge if needed, builds the solution, and opens a
 writable Garage Draft under `.eutherwire-work/`. The tracked example is never
 modified. Other useful modes are:

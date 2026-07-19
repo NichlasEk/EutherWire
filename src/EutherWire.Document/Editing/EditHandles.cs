@@ -81,6 +81,10 @@ public static class DocumentHandles
                     device.Position + Rotate(port.Position, device.RotationDegrees)));
             }
         }
+        foreach (BuildingOpening opening in document.Openings.Values.OrderBy(opening => opening.Id.Value, StringComparer.Ordinal))
+        {
+            handles.Add(new EditHandle(new EditHandleId(opening.Id, EditHandleKind.Move), opening.Centre.Plan));
+        }
 
         foreach (CableRoute cable in document.Cables.Values.OrderBy(cable => cable.Id.Value, StringComparer.Ordinal))
         {
@@ -140,6 +144,7 @@ public static class DocumentHandleEditor
         {
             return new Point3(position.X, position.Y, device.ElevationMillimetres);
         }
+        if (document.Openings.TryGetValue(id.ObjectId, out BuildingOpening? opening)) return opening.Centre;
         if (id.Kind == EditHandleKind.Vertex && id.Index >= 0)
         {
             if (document.Conduits.TryGetValue(id.ObjectId, out Conduit? conduit)) return conduit.Route.SpatialPoints[id.Index];
@@ -161,6 +166,11 @@ public static class DocumentHandleEditor
         switch (id.Kind)
         {
             case EditHandleKind.Move:
+                if (document.Openings.TryGetValue(id.ObjectId, out BuildingOpening? opening))
+                {
+                    opening.Centre = new Point3(position.X, position.Y, opening.Centre.Z);
+                    return;
+                }
                 MoveDevice(document, id.ObjectId, position);
                 return;
             case EditHandleKind.Rotate:
@@ -193,9 +203,16 @@ public static class DocumentHandleEditor
         Device? spatialDevice = id.Kind == EditHandleKind.Move && document.Devices.TryGetValue(id.ObjectId, out Device? candidate)
             ? candidate
             : null;
+        BuildingOpening? spatialOpening = id.Kind == EditHandleKind.Move && document.Openings.TryGetValue(id.ObjectId, out BuildingOpening? openingCandidate)
+            ? openingCandidate
+            : null;
         if (spatialDevice is not null)
         {
             position = MountingSurfaceGeometry.Constrain(document.Space, spatialDevice.MountingSurface, position);
+        }
+        else if (spatialOpening is not null)
+        {
+            position = MountingSurfaceGeometry.Constrain(document.Space, spatialOpening.Surface, position);
         }
         SetPosition(document, id, position.Plan);
         if (spatialDevice is not null)
@@ -216,6 +233,11 @@ public static class DocumentHandleEditor
                     document.Replace(conduit with { Route = conduit.Route.WithElevation(endpoint, position.Z) });
                 }
             }
+            return;
+        }
+        if (spatialOpening is not null)
+        {
+            spatialOpening.Centre = position;
             return;
         }
         if (id.Kind == EditHandleKind.Vertex)

@@ -53,6 +53,10 @@ public static class PngProjectExporter
             {
                 DrawRoute(canvas, conduit.Route.Points, Screen, 0xff708898, Math.Max(3, (int)Math.Round(scale * 70)));
             }
+            foreach (BuildingOpening opening in document.Openings.Values.OrderBy(item => item.Id.Value, StringComparer.Ordinal))
+            {
+                DrawRoute(canvas, ProjectExportLayout.OpeningPlanEdge(opening), Screen, 0xffc56f42, Math.Max(4, (int)Math.Round(scale * 90)));
+            }
             foreach (CableRoute cable in document.Cables.Values.OrderBy(item => item.Id.Value, StringComparer.Ordinal))
             {
                 DrawRoute(canvas, cable.Route.Points, Screen, 0xff159dcc, Math.Max(2, (int)Math.Round(scale * 28)));

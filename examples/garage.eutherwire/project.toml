@@ -2,7 +2,7 @@ annotations = []
 [project]
 name = "Garage Draft"
 units = "mm"
-schema_version = 4
+schema_version = 5
 cable_slack_percent = 10.0
 service_loop_mm = 1000.0
 [space]
@@ -12,6 +12,14 @@ depth_mm = 6000.0
 height_mm = 2800.0
 wall_thickness_mm = 200.0
 ceiling_thickness_mm = 250.0
+[[openings]]
+id = "garage-door-south"
+kind = "garage_door"
+surface = "south_wall_interior"
+centre = [5500.0, 2500.0, 1100.0]
+width_mm = 5000.0
+height_mm = 2200.0
+label = "GARAGEPORT"
 [[devices]]
 id = "camera-north"
 kind = "camera"
