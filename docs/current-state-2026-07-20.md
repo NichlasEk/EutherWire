@@ -169,6 +169,8 @@ The first wall-elevation editing mode now provides:
    cancellation that restores pre-drag geometry;
 9. larger handle markers and 28 × 28 pixel hit targets (20 × 20 for ports) in
    PLAN, 3D, and WALL.
+10. keyboard `Delete` for the selected object, routed through the existing
+    dependency-safe, undoable delete command and suppressed during text input.
 
 The next recommended slice is to export printable wall elevations containing
 the new dimensions and bind common mounting heights to symbol/library metadata,

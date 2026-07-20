@@ -122,6 +122,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         const uint keyEscape = 1;
         const uint keyF9 = 67;
         const uint keyF10 = 68;
+        const uint keyDelete = 111;
         if (!input.Pressed) return;
         if (input.KeyCode == keyEscape)
         {
@@ -140,6 +141,13 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             _camera3D.CycleView();
             _statusMessage = $"Camera: {_camera3D.ViewLabel}";
+        }
+        else if (input.KeyCode == keyDelete && _ui?.Focused is null &&
+            _activeTool == ToolKind.Select && _activeHandle is null &&
+            _draftPoints.Count == 0 && _dimensionStart is null &&
+            _selectedObjectId is ObjectId selected)
+        {
+            DeleteSelection(selected);
         }
     }
 

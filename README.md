@@ -78,6 +78,10 @@ route, placement tool, or handle drag. Cancelling a drag restores the original
 geometry. Visible handles are larger and use a forgiving 28 × 28 pixel hit
 area, which also prepares the editor for touch input.
 
+With `SEL` active, select an object and press the keyboard `Delete` key to use
+the same undoable deletion as the inspector's `DELETE` button. Delete is ignored
+while an inspector text field is focused or another drawing operation is active.
+
 Garage Draft now includes a first-class 5,000 × 2,200 mm garage-door opening
 on the south wall. Openings retain their wall, 3D centre, dimensions, stable
 handles, and IDs through TOML, SVG, and PNG export.
