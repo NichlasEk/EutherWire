@@ -8,6 +8,9 @@
     <ProjectReference Include="../EutherWire.Export/EutherWire.Export.csproj" />
     <ProjectReference Include="../../vendor/WaylandForge/src/SystemRegisIII.WaylandForge.App/SystemRegisIII.WaylandForge.App.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../catalog/electrical-products.toml" Link="catalog/electrical-products.toml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <Target Name="CopyWaylandForgeNative" AfterTargets="Build">
     <Copy
       SourceFiles="../../vendor/WaylandForge/src/SystemRegisIII.WaylandForge.App/bin/$(Configuration)/net10.0/libwaylandforge_native.so"

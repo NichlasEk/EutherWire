@@ -429,12 +429,12 @@ public static class ProjectAnalyzer
                 group.Sum(cable => RecommendedLength(document, cable)) / 1000,
                 "m")));
         materials.AddRange(document.Conduits.Values
-            .GroupBy(conduit => conduit.InnerDiameterMillimetres)
-            .OrderBy(group => group.Key)
+            .GroupBy(conduit => (conduit.ProductId, Nominal: conduit.NominalDiameterMillimetres ?? conduit.InnerDiameterMillimetres, conduit.InnerDiameterMillimetres))
+            .OrderBy(group => group.Key.Nominal).ThenBy(group => group.Key.ProductId, StringComparer.Ordinal)
             .Select(group => new MaterialItem(
                 "conduit",
-                $"{group.Key:0.###}",
-                $"Conduit {group.Key:0.###} mm",
+                group.Key.ProductId ?? $"custom-{group.Key.Nominal:0.###}-{group.Key.InnerDiameterMillimetres:0.###}",
+                $"Conduit {group.Key.Nominal:0.###} mm (inner {group.Key.InnerDiameterMillimetres:0.###} mm)",
                 group.Sum(conduit => conduit.Route.LengthMillimetres) / 1000,
                 "m")));
         materials.AddRange(document.Cables.Values

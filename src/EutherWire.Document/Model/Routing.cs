@@ -52,4 +52,5 @@ public sealed record Conduit(
     double InnerDiameterMillimetres,
     Polyline Route,
     InstallationMethod InstallationMethod = InstallationMethod.Unknown,
-    double? NominalDiameterMillimetres = null);
+    double? NominalDiameterMillimetres = null,
+    string? ProductId = null);

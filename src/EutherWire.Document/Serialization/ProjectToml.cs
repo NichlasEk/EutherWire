@@ -89,9 +89,9 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion is < 1 or > 9)
+        if (file.Project.SchemaVersion is < 1 or > 10)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 9.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 10.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
@@ -161,7 +161,8 @@ public static class ProjectToml
                 Positive(source.InnerDiameterMillimetres, $"conduits[{source.Id}].inner_diameter_mm"),
                 Polyline(source.Points, $"conduits[{source.Id}].points"),
                 ParseEnum<InstallationMethod>(source.InstallationMethod, "installation method"),
-                OptionalPositive(source.NominalDiameterMillimetres, $"conduits[{source.Id}].nominal_diameter_mm")));
+                OptionalPositive(source.NominalDiameterMillimetres, $"conduits[{source.Id}].nominal_diameter_mm"),
+                source.ProductId));
         }
         foreach (CableFile source in file.Cables)
         {
@@ -254,6 +255,7 @@ public static class ProjectToml
         Label = conduit.Label,
         InnerDiameterMillimetres = conduit.InnerDiameterMillimetres,
         NominalDiameterMillimetres = conduit.NominalDiameterMillimetres,
+        ProductId = conduit.ProductId,
         InstallationMethod = Name(conduit.InstallationMethod),
         Points = conduit.Route.SpatialPoints.Select(point => new[] { point.X, point.Y, point.Z }).ToList(),
     };
@@ -650,6 +652,9 @@ public static class ProjectToml
 
         [JsonPropertyName("nominal_diameter_mm")]
         public double? NominalDiameterMillimetres { get; set; }
+
+        [JsonPropertyName("product_id")]
+        public string? ProductId { get; set; }
 
         [JsonPropertyName("installation_method")]
         public string? InstallationMethod { get; set; }

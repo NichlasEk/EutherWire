@@ -43,10 +43,11 @@ public static class ProjectTemplates
         document.Add(new Conduit(
             conduitId,
             "RÖR-R07",
-            25,
+            20.2,
             new Polyline(route),
             InstallationMethod.Concealed,
-            25));
+            25,
+            "pipelife-halovolt-750n-25"));
         document.Add(new CableRoute(
             ObjectId.Parse("camera-north-cat6"),
             "KAM-N-CAT6",

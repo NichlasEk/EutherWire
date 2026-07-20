@@ -197,7 +197,7 @@ route lengths, recommended cable order length, estimated conduit fill,
 materials, and connection diagnostics. See
 [docs/development-plan.md](docs/development-plan.md).
 
-Schema 9 also separates nominal conduit size, actual mechanical fill, and thermal circuit sizing.
+Schema 10 also separates a traceable conduit product, nominal size, actual mechanical fill, and thermal circuit sizing.
 Loose FK/RK conductors use their insulated outside diameters, while the thermal
 planning result remains `UNKNOWN` until explicit current, protection,
 correction factors, and a traceable reference capacity are supplied. See

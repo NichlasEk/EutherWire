@@ -1,0 +1,28 @@
+schema_version = 1
+
+[[conduits]]
+id = "pipelife-halovolt-750n-16"
+manufacturer = "Pipelife"
+name = "Halovolt PP HF 750N LF 16"
+e_number = "1414864"
+nominal_diameter_mm = 16.0
+inner_diameter_mm = 12.0
+source_url = "https://www.pipelife.se/Katalog/Elinstallation/Slata-elinstallationsror/Halovolt-slata-halogenfria-elinstallationsror/halovolt-halogenfria-installationsroer-750n-pp/halovolt-16-pp-hf-750n-lf-gra.html"
+
+[[conduits]]
+id = "pipelife-halovolt-750n-20"
+manufacturer = "Pipelife"
+name = "Halovolt PP HF 750N LF 20"
+e_number = "1414865"
+nominal_diameter_mm = 20.0
+inner_diameter_mm = 15.8
+source_url = "https://www.pipelife.se/Katalog/Elinstallation/Slata-elinstallationsror/Halovolt-slata-halogenfria-elinstallationsror/halovolt-halogenfria-installationsroer-750n-pp/halovolt-20-pp-hf-750n-lf-gra.html"
+
+[[conduits]]
+id = "pipelife-halovolt-750n-25"
+manufacturer = "Pipelife"
+name = "Halovolt PP HF 750N LF 25"
+e_number = "1414866"
+nominal_diameter_mm = 25.0
+inner_diameter_mm = 20.2
+source_url = "https://www.pipelife.se/Katalog/Elinstallation/Slata-elinstallationsror/Halovolt-slata-halogenfria-elinstallationsror/halovolt-halogenfria-installationsroer-750n-pp/halovolt-25-pp-hf-750n-lf-gra.html"

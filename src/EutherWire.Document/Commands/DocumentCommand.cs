@@ -456,7 +456,7 @@ public sealed class SetConduitDiameterCommand(ObjectId conduitId, double diamete
         }
         Conduit conduit = document.RequireConduit(conduitId);
         _previous ??= conduit.InnerDiameterMillimetres;
-        document.Replace(conduit with { InnerDiameterMillimetres = diameterMillimetres });
+        document.Replace(conduit with { InnerDiameterMillimetres = diameterMillimetres, ProductId = null });
     }
 
     public void Undo(ProjectDocument document)
@@ -483,7 +483,7 @@ public sealed class SetConduitNominalDiameterCommand(ObjectId conduitId, double 
             _previous = conduit.NominalDiameterMillimetres;
             _captured = true;
         }
-        document.Replace(conduit with { NominalDiameterMillimetres = nominalDiameterMillimetres });
+        document.Replace(conduit with { NominalDiameterMillimetres = nominalDiameterMillimetres, ProductId = null });
     }
 
     public void Undo(ProjectDocument document)
@@ -491,6 +491,32 @@ public sealed class SetConduitNominalDiameterCommand(ObjectId conduitId, double 
         Conduit conduit = document.RequireConduit(conduitId);
         if (!_captured) throw new InvalidOperationException("Command has not been applied.");
         document.Replace(conduit with { NominalDiameterMillimetres = _previous });
+    }
+}
+
+public sealed class SetConduitProductCommand(ObjectId conduitId, ConduitProduct product) : IDocumentCommand
+{
+    private Conduit? _previous;
+
+    public string Description => $"Set {conduitId} product to {product.Id}";
+
+    public void Apply(ProjectDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(product);
+        Conduit conduit = document.RequireConduit(conduitId);
+        _previous ??= conduit;
+        document.Replace(conduit with
+        {
+            ProductId = product.Id,
+            NominalDiameterMillimetres = product.NominalDiameterMillimetres,
+            InnerDiameterMillimetres = product.InnerDiameterMillimetres,
+        });
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        _ = document.RequireConduit(conduitId);
+        document.Replace(_previous ?? throw new InvalidOperationException("Command has not been applied."));
     }
 }
 

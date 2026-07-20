@@ -25,7 +25,10 @@ complete result therefore requires:
 Unknown diameters remain explicitly unknown. EutherWire does not infer a
 thermal current limit from physical fill.
 
-Schema 9 stores nominal conduit size and actual inner diameter separately.
+Schema 10 stores a traceable conduit product, nominal size, and actual inner
+diameter separately. The initial catalog deliberately contains only Pipelife
+Halovolt 750N products in the common 16, 20, and 25 mm sizes. Their source URLs
+and E-numbers live beside the dimensions in `catalog/electrical-products.toml`.
 Changing a `16 mm` product selection therefore never silently changes the
 diameter used by the fill calculation.
 

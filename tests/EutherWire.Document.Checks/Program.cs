@@ -278,8 +278,8 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
-Require(loaded.SchemaVersion == 9 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
-Require(loaded.ElectricalRules == ElectricalRuleProfile.Sweden2026, "Schema 9 must preserve its versioned Swedish electrical rule profile.");
+Require(loaded.SchemaVersion == 10 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.ElectricalRules == ElectricalRuleProfile.Sweden2026, "Schema 10 must preserve its versioned Swedish electrical rule profile.");
 Require(loaded.RequireCable(cableId).Electrical is { Product: CableProductKind.Cat6, Preset: CircuitPreset.Data, Conductors.Count: 4 },
     "Schema 7 must migrate legacy CAT6 into explicit data pairs.");
 Require(loaded.RequireWallDimension(dimensionId).Label == "PORTÖPPNING", "TOML must preserve wall dimensions.");
@@ -330,9 +330,9 @@ ElectricalDesignCheck sizingCheck = sizingAnalysis.ElectricalDesignChecks.Single
 Require(sizingCheck.Status == DesignCheckStatus.Pass && Math.Abs(sizingCheck.CorrectedCurrentCarryingCapacityAmperes!.Value - 18) < 0.001,
     "Current-capacity planning must apply explicit correction factors and verify Ib <= In <= Iz.");
 Require(sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical!.Design!.ReferenceSource == "licensed test fixture",
-    "Schema 9 must preserve traceable thermal sizing inputs.");
+    "Schema 10 must preserve traceable thermal sizing inputs.");
 Require(sizingLoaded.RequireConduit(sizingConduitId).NominalDiameterMillimetres == 16,
-    "Schema 9 must keep nominal conduit size separate from actual inner diameter.");
+    "Schema 10 must keep nominal conduit size separate from actual inner diameter.");
 var sizingHistory = new CommandHistory();
 sizingHistory.Execute(sizingLoaded, new SetConduitNominalDiameterCommand(sizingConduitId, 20));
 Require(sizingLoaded.RequireConduit(sizingConduitId).NominalDiameterMillimetres == 20 && sizingLoaded.RequireConduit(sizingConduitId).InnerDiameterMillimetres == 10.7,
@@ -345,6 +345,17 @@ Require(sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical == repl
     "Electrical profile edits must use the undoable command layer.");
 Require(sizingHistory.Undo(sizingLoaded) && sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical!.Design is not null,
     "Undo must restore the complete electrical design.");
+ElectricalProductCatalog productCatalog = ElectricalProductCatalog.Load(Path.Combine("catalog", "electrical-products.toml"));
+Require(productCatalog.Conduits.Select(item => item.NominalDiameterMillimetres).SequenceEqual([16d, 20d, 25d]),
+    "The initial Swedish conduit catalog must stay focused on 16, 20, and 25 mm products.");
+ConduitProduct selectedProduct = productCatalog.RequireConduit("pipelife-halovolt-750n-16");
+Require(selectedProduct.InnerDiameterMillimetres == 12 && selectedProduct.ENumber == "1414864",
+    "Catalog dimensions and E-number must come from the traceable product record.");
+sizingHistory.Execute(sizingLoaded, new SetConduitProductCommand(sizingConduitId, selectedProduct));
+Require(sizingLoaded.RequireConduit(sizingConduitId) is { ProductId: "pipelife-halovolt-750n-16", NominalDiameterMillimetres: 16, InnerDiameterMillimetres: 12 },
+    "Selecting a conduit product must atomically apply its nominal and inner diameters.");
+Require(sizingHistory.Undo(sizingLoaded) && sizingLoaded.RequireConduit(sizingConduitId).InnerDiameterMillimetres == 10.7,
+    "Conduit product selection must be undoable.");
 
 string dangling = serialized.Replace("target:in", "missing:in", StringComparison.Ordinal);
 try
@@ -385,9 +396,13 @@ Require(garageAnalysis.TotalCableLengthMillimetres == 7400, "Analysis must sum c
 Require(garageAnalysis.TotalConduitLengthMillimetres == 7400, "Analysis must sum conduit geometry.");
 Require(Math.Abs(garageAnalysis.RecommendedCableLengthMillimetres - 9140) < 0.001, "Cable orders need margin and a service loop.");
 ConduitFill garageFill = garageAnalysis.ConduitFills.Single();
-Require(Math.Abs(garageFill.FillRatio - (6.2 * 6.2 / (25 * 25))) < 0.000001, "Conduit fill must use the planning diameter catalogue.");
+Require(Math.Abs(garageFill.FillRatio - (6.2 * 6.2 / (20.2 * 20.2))) < 0.000001, "Conduit fill must use the selected product's actual inner diameter.");
+Require(garageDocument.RequireConduit(ObjectId.Parse("camera-north-pipe")).ProductId == "pipelife-halovolt-750n-25",
+    "Garage Draft must retain its traceable conduit product selection.");
 Require(garageAnalysis.ErrorCount == 0 && garageAnalysis.WarningCount == 0, "The garage template must be semantically sound.");
 Require(garageAnalysis.Materials.Any(item => item.Category == "cable" && item.Key == nameof(CableKind.Cat6) && Math.Abs(item.Quantity - 9.14) < 0.001), "Material list must aggregate recommended cable metres.");
+Require(garageAnalysis.Materials.Any(item => item.Category == "conduit" && item.Description == "Conduit 25 mm (inner 20.2 mm)"),
+    "Material lists must order the nominal conduit product while retaining its actual inner diameter.");
 InstallationTask garageTask = garageAnalysis.InstallationTasks.Single();
 Require(garageTask.From == "POE-SW:port-1" && garageTask.To == "KAM-N:eth0", "Installation tasks must resolve readable endpoint labels.");
 Require(garageTask.PlannedLengthMillimetres == 9140 && garageTask.ActualLengthMillimetres is null, "Installation tasks need planned and measured lengths.");
