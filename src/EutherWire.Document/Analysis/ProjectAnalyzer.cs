@@ -26,7 +26,20 @@ public sealed record ConduitFill(
     ObjectId ConduitId,
     double FillRatio,
     int KnownCableCount,
-    int UnknownCableCount);
+    int UnknownCableCount,
+    int KnownConductorCount = 0,
+    int UnknownConductorCount = 0);
+
+public enum DesignCheckStatus { Pass, Warning, Unknown }
+
+public sealed record ElectricalDesignCheck(
+    ObjectId CableId,
+    DesignCheckStatus Status,
+    double? DesignCurrentAmperes,
+    double? ProtectiveDeviceAmperes,
+    double? CorrectedCurrentCarryingCapacityAmperes,
+    string RuleProfileId,
+    string Message);
 
 public sealed record InstallationTask(
     ObjectId CableId,
@@ -44,6 +57,7 @@ public sealed record ProjectAnalysis(
     double TotalConduitLengthMillimetres,
     IReadOnlyList<MaterialItem> Materials,
     IReadOnlyList<ConduitFill> ConduitFills,
+    IReadOnlyList<ElectricalDesignCheck> ElectricalDesignChecks,
     IReadOnlyList<InstallationTask> InstallationTasks,
     IReadOnlyList<ProjectDiagnostic> Diagnostics)
 {
@@ -92,15 +106,18 @@ public static class ProjectAnalyzer
                     conduit.Id,
                     $"Conduit '{conduit.Label}' has an estimated fill of {fill.FillRatio:P0}; planning threshold is {FillWarningRatio:P0}."));
             }
-            if (fill.UnknownCableCount > 0)
+            int unknownFillItems = fill.UnknownCableCount + fill.UnknownConductorCount;
+            if (unknownFillItems > 0)
             {
                 diagnostics.Add(new ProjectDiagnostic(
                     "conduit.fill.unknown",
                     DiagnosticSeverity.Info,
                     conduit.Id,
-                    $"Conduit '{conduit.Label}' contains {fill.UnknownCableCount} cable(s) without a known outside diameter."));
+                    $"Conduit '{conduit.Label}' contains {unknownFillItems} cable(s) or conductor(s) without a known outside diameter."));
             }
         }
+
+        IReadOnlyList<ElectricalDesignCheck> designChecks = BuildElectricalDesignChecks(document, diagnostics);
 
         double cableLength = document.Cables.Values.Sum(cable => cable.Route.LengthMillimetres);
         double recommendedCableLength = document.Cables.Values.Sum(cable => RecommendedLength(document, cable));
@@ -116,6 +133,7 @@ public static class ProjectAnalyzer
             conduitLength,
             BuildMaterials(document),
             fills,
+            designChecks,
             BuildInstallationTasks(document),
             diagnostics);
     }
@@ -304,9 +322,32 @@ public static class ProjectAnalyzer
         double occupiedDiameterSquared = 0;
         int known = 0;
         int unknown = 0;
+        int knownConductors = 0;
+        int unknownConductors = 0;
         foreach (CableRoute cable in document.Cables.Values.Where(cable => cable.ConduitId == conduit.Id))
         {
-            if (ApproximateCableDiameters.TryGetValue(cable.Kind, out double diameter))
+            ElectricalCableSpec electrical = cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind);
+            if (electrical.Product is CableProductKind.Fk or CableProductKind.Rk)
+            {
+                foreach (ConductorSpec conductor in electrical.Conductors)
+                {
+                    if (conductor.OutsideDiameterMillimetres is double conductorDiameter)
+                    {
+                        occupiedDiameterSquared += conductorDiameter * conductorDiameter;
+                        knownConductors++;
+                    }
+                    else
+                    {
+                        unknownConductors++;
+                    }
+                }
+            }
+            else if (electrical.OutsideDiameterMillimetres is double exactDiameter)
+            {
+                occupiedDiameterSquared += exactDiameter * exactDiameter;
+                known++;
+            }
+            else if (ApproximateCableDiameters.TryGetValue(cable.Kind, out double diameter))
             {
                 occupiedDiameterSquared += diameter * diameter;
                 known++;
@@ -319,7 +360,56 @@ public static class ProjectAnalyzer
         double ratio = conduit.InnerDiameterMillimetres > 0
             ? occupiedDiameterSquared / (conduit.InnerDiameterMillimetres * conduit.InnerDiameterMillimetres)
             : 0;
-        return new ConduitFill(conduit.Id, ratio, known, unknown);
+        return new ConduitFill(conduit.Id, ratio, known, unknown, knownConductors, unknownConductors);
+    }
+
+    private static IReadOnlyList<ElectricalDesignCheck> BuildElectricalDesignChecks(ProjectDocument document, List<ProjectDiagnostic> diagnostics)
+    {
+        var checks = new List<ElectricalDesignCheck>();
+        foreach (CableRoute cable in document.Cables.Values.OrderBy(item => item.Id.Value, StringComparer.Ordinal))
+        {
+            ElectricalCableSpec electrical = cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind);
+            if (electrical.Preset is CircuitPreset.Data or CircuitPreset.Custom || electrical.Design is null)
+            {
+                if (electrical.Preset is not (CircuitPreset.Data or CircuitPreset.Custom))
+                {
+                    AddUnknown(cable, document, diagnostics, checks, "Circuit design current, protective device and verified reference capacity are required.");
+                }
+                continue;
+            }
+
+            CircuitDesign design = electrical.Design;
+            if (design.DesignCurrentAmperes is not double ib ||
+                design.ProtectiveDeviceAmperes is not double protectiveDevice ||
+                design.CorrectedCurrentCarryingCapacityAmperes is not double iz ||
+                string.IsNullOrWhiteSpace(design.ReferenceSource))
+            {
+                AddUnknown(cable, document, diagnostics, checks, "Thermal result is unknown until Ib, protective device, reference capacity and its source are supplied.");
+                continue;
+            }
+
+            bool passes = ib <= protectiveDevice && protectiveDevice <= iz;
+            string firstRelation = ib <= protectiveDevice ? "≤" : ">";
+            string secondRelation = protectiveDevice <= iz ? "≤" : ">";
+            string relation = $"Ib {ib:0.##} A {firstRelation} In {protectiveDevice:0.##} A {secondRelation} Iz {iz:0.##} A";
+            var check = new ElectricalDesignCheck(cable.Id, passes ? DesignCheckStatus.Pass : DesignCheckStatus.Warning,
+                ib, protectiveDevice, iz, document.ElectricalRules.Id,
+                $"{relation}; source: {design.ReferenceSource}.");
+            checks.Add(check);
+            if (!passes)
+            {
+                diagnostics.Add(new ProjectDiagnostic("sizing.current_capacity.failed", DiagnosticSeverity.Warning, cable.Id,
+                    $"Cable '{cable.Label}' fails the planning current-capacity relation: {relation}. Electrician verification required."));
+            }
+        }
+        return checks;
+    }
+
+    private static void AddUnknown(CableRoute cable, ProjectDocument document, List<ProjectDiagnostic> diagnostics, List<ElectricalDesignCheck> checks, string message)
+    {
+        checks.Add(new ElectricalDesignCheck(cable.Id, DesignCheckStatus.Unknown, null, null, null, document.ElectricalRules.Id, message));
+        diagnostics.Add(new ProjectDiagnostic("sizing.current_capacity.unknown", DiagnosticSeverity.Info, cable.Id,
+            $"Cable '{cable.Label}': {message}"));
     }
 
     private static IReadOnlyList<MaterialItem> BuildMaterials(ProjectDocument document)

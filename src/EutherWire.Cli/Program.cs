@@ -210,10 +210,15 @@ static int PrintReport(ProjectDocument document)
     {
         Console.WriteLine($"  {item.Category}\t{item.Description}\t{item.Quantity.ToString("0.###", CultureInfo.InvariantCulture)} {item.Unit}");
     }
-    Console.WriteLine("Conduit fill (planning estimate):");
+    Console.WriteLine("Conduit fill (mechanical planning check):");
     foreach (ConduitFill fill in analysis.ConduitFills)
     {
-        Console.WriteLine($"  {fill.ConduitId}\t{fill.FillRatio.ToString("P1", CultureInfo.InvariantCulture)}\tknown={fill.KnownCableCount} unknown={fill.UnknownCableCount}");
+        Console.WriteLine($"  {fill.ConduitId}\t{fill.FillRatio.ToString("P1", CultureInfo.InvariantCulture)}\tcables={fill.KnownCableCount} conductors={fill.KnownConductorCount} unknown={fill.UnknownCableCount + fill.UnknownConductorCount}");
+    }
+    Console.WriteLine($"Electrical sizing ({document.ElectricalRules.Id}):");
+    foreach (ElectricalDesignCheck check in analysis.ElectricalDesignChecks)
+    {
+        Console.WriteLine($"  {check.CableId}\t{check.Status.ToString().ToUpperInvariant()}\t{check.Message}");
     }
     Console.WriteLine($"Diagnostics: errors={analysis.ErrorCount} warnings={analysis.WarningCount}");
     foreach (ProjectDiagnostic diagnostic in analysis.Diagnostics)

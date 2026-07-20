@@ -25,19 +25,23 @@ public sealed record ConductorSpec
 
 public sealed record ElectricalCableSpec
 {
-    public ElectricalCableSpec(CableProductKind product, CircuitPreset preset, IEnumerable<ConductorSpec> conductors, string shielding = "none", bool poeCapable = false)
+    public ElectricalCableSpec(CableProductKind product, CircuitPreset preset, IEnumerable<ConductorSpec> conductors, string shielding = "none", bool poeCapable = false, double? outsideDiameterMillimetres = null, CircuitDesign? design = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(shielding);
         List<ConductorSpec> list = conductors.ToList();
         if (list.Count == 0) throw new ArgumentException("A cable needs at least one conductor or data pair.", nameof(conductors));
         if (list.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count() != list.Count) throw new ArgumentException("Conductor IDs must be unique.", nameof(conductors));
+        if (outsideDiameterMillimetres is double diameter && (!double.IsFinite(diameter) || diameter <= 0)) throw new ArgumentOutOfRangeException(nameof(outsideDiameterMillimetres));
         Product = product; Preset = preset; Conductors = list; Shielding = shielding; PoeCapable = poeCapable;
+        OutsideDiameterMillimetres = outsideDiameterMillimetres; Design = design;
     }
     public CableProductKind Product { get; }
     public CircuitPreset Preset { get; }
     public IReadOnlyList<ConductorSpec> Conductors { get; }
     public string Shielding { get; }
     public bool PoeCapable { get; }
+    public double? OutsideDiameterMillimetres { get; }
+    public CircuitDesign? Design { get; }
 }
 
 public static class ElectricalCableProfiles

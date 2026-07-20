@@ -2,9 +2,15 @@ annotations = []
 [project]
 name = "Garage Draft"
 units = "mm"
-schema_version = 5
+schema_version = 8
 cable_slack_percent = 10.0
 service_loop_mm = 1000.0
+[electrical_rules]
+id = "se-ss43640-00-4-2023-sek421-5.1-2026"
+installation_standard = "SS 436 40 00"
+installation_standard_edition = "4:2023"
+cable_sizing_guide = "SEK Handbok 421"
+cable_sizing_guide_edition = "5.1:2026"
 [space]
 origin = [-1500.0, -3500.0]
 width_mm = 14000.0

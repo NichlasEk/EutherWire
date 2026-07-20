@@ -2566,8 +2566,20 @@ internal sealed class EutherWireApplication : IForgeApplication
             ConduitFill? fill = analysis.ConduitFills.FirstOrDefault(item => item.ConduitId == selected);
             if (fill is not null)
             {
-                canvas.DrawText(inspectorX + 18, 674, $"Selected fill {fill.FillRatio:P1}", fill.FillRatio > 0.40 ? 0xffffcc66 : 0xff9eb0bb);
+                int unknown = fill.UnknownCableCount + fill.UnknownConductorCount;
+                string suffix = unknown > 0 ? $" · {unknown} unknown" : string.Empty;
+                canvas.DrawText(inspectorX + 18, 674, $"Physical fill {fill.FillRatio:P1}{suffix}", fill.FillRatio > 0.40 || unknown > 0 ? 0xffffcc66 : 0xff61e294);
             }
+        }
+        else if (_selectedObjectId is ObjectId cableId && _document.Cables.ContainsKey(cableId))
+        {
+            ElectricalDesignCheck? check = analysis.ElectricalDesignChecks.FirstOrDefault(item => item.CableId == cableId);
+            if (check is not null)
+            {
+                uint color = check.Status == DesignCheckStatus.Pass ? 0xff61e294 : 0xffffcc66;
+                canvas.DrawText(inspectorX + 18, 674, $"Thermal {check.Status.ToString().ToUpperInvariant()}", color);
+            }
+            else canvas.DrawText(inspectorX + 18, 674, "Thermal N/A", 0xff9eb0bb);
         }
         else
         {

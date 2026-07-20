@@ -276,7 +276,8 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
-Require(loaded.SchemaVersion == 7 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.SchemaVersion == 8 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.ElectricalRules == ElectricalRuleProfile.Sweden2026, "Schema 8 must preserve its versioned Swedish electrical rule profile.");
 Require(loaded.RequireCable(cableId).Electrical is { Product: CableProductKind.Cat6, Preset: CircuitPreset.Data, Conductors.Count: 4 },
     "Schema 7 must migrate legacy CAT6 into explicit data pairs.");
 Require(loaded.RequireWallDimension(dimensionId).Label == "PORTÖPPNING", "TOML must preserve wall dimensions.");
@@ -299,6 +300,35 @@ Require(electricalAnalysis.Materials.Count(item => item.Category == "conductor")
     "Loose FK conductors must produce material rows grouped by function and colour.");
 Require(!electricalAnalysis.Diagnostics.Any(item => item.Code.StartsWith("electrical.", StringComparison.Ordinal)),
     "A complete lighting preset must pass basic electrical diagnostics.");
+
+var sizingDocument = new ProjectDocument("16 mm conduit sizing");
+ObjectId sizingConduitId = ObjectId.Parse("pipe-16");
+Polyline sizingRoute = new([new Point2(0, 0), new Point2(5000, 0)]);
+sizingDocument.Add(new Conduit(sizingConduitId, "RÖR-16", 10.7, sizingRoute, InstallationMethod.Concealed));
+var sizedFk = new ElectricalCableSpec(CableProductKind.Fk, CircuitPreset.SinglePhase,
+    [
+        new("l1", ConductorFunction.Line1, "brown", 2.5, 3.4),
+        new("n", ConductorFunction.Neutral, "blue", 2.5, 3.4),
+        new("pe", ConductorFunction.ProtectiveEarth, "green_yellow", 2.5, 3.4),
+    ], design: new CircuitDesign(230, 1, loadedConductorCount: 2, designCurrentAmperes: 13,
+        protectiveDeviceAmperes: 16, protectiveDeviceCharacteristic: "B",
+        referenceCurrentCarryingCapacityAmperes: 20, ambientCorrectionFactor: 1,
+        groupingCorrectionFactor: 0.9, thermalInsulationCorrectionFactor: 1,
+        referenceSource: "licensed test fixture"));
+sizingDocument.Add(new CableRoute(ObjectId.Parse("fk-group"), "UTTAG", CableKind.Custom, sizingRoute,
+    ConduitId: sizingConduitId, Electrical: sizedFk));
+ProjectDocument sizingLoaded = ProjectToml.Deserialize(ProjectToml.Serialize(sizingDocument));
+ProjectAnalysis sizingAnalysis = ProjectAnalyzer.Analyze(sizingLoaded);
+ConduitFill sizingFill = sizingAnalysis.ConduitFills.Single();
+Require(sizingFill.KnownConductorCount == 3 && sizingFill.UnknownConductorCount == 0,
+    "Loose FK/RK fill must count each insulated conductor using its exact outside diameter.");
+Require(Math.Abs(sizingFill.FillRatio - (3 * 3.4 * 3.4 / (10.7 * 10.7))) < 0.000001,
+    "Conduit fill must use actual inner diameter and insulated conductor diameters.");
+ElectricalDesignCheck sizingCheck = sizingAnalysis.ElectricalDesignChecks.Single();
+Require(sizingCheck.Status == DesignCheckStatus.Pass && Math.Abs(sizingCheck.CorrectedCurrentCarryingCapacityAmperes!.Value - 18) < 0.001,
+    "Current-capacity planning must apply explicit correction factors and verify Ib <= In <= Iz.");
+Require(sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical!.Design!.ReferenceSource == "licensed test fixture",
+    "Schema 8 must preserve traceable thermal sizing inputs.");
 
 string dangling = serialized.Replace("target:in", "missing:in", StringComparison.Ordinal);
 try

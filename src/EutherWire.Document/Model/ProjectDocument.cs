@@ -15,9 +15,10 @@ public sealed class ProjectDocument
         Name = name;
     }
 
-    public int SchemaVersion => 7;
+    public int SchemaVersion => 8;
     public string Name { get; set; }
     public PlanningSettings Planning { get; internal set; } = new();
+    public ElectricalRuleProfile ElectricalRules { get; internal set; } = ElectricalRuleProfile.Sweden2026;
     public SpaceVolume Space { get; internal set; } = SpaceVolume.GarageDefault;
     public IReadOnlyDictionary<ObjectId, Device> Devices => _devices;
     public IReadOnlyDictionary<ObjectId, CableRoute> Cables => _cables;

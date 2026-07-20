@@ -22,6 +22,14 @@ public static class ProjectToml
                 CableSlackPercent = document.Planning.CableSlackPercent,
                 ServiceLoopMillimetres = document.Planning.ServiceLoopMillimetres,
             },
+            ElectricalRules = new ElectricalRulesFile
+            {
+                Id = document.ElectricalRules.Id,
+                InstallationStandard = document.ElectricalRules.InstallationStandard,
+                InstallationStandardEdition = document.ElectricalRules.InstallationStandardEdition,
+                CableSizingGuide = document.ElectricalRules.CableSizingGuide,
+                CableSizingGuideEdition = document.ElectricalRules.CableSizingGuideEdition,
+            },
             Space = new SpaceFile
             {
                 Origin = [document.Space.Origin.X, document.Space.Origin.Y],
@@ -81,9 +89,9 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion is < 1 or > 7)
+        if (file.Project.SchemaVersion is < 1 or > 8)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 7.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 8.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
@@ -96,6 +104,15 @@ public static class ProjectToml
                 NonNegative(file.Project.CableSlackPercent, "project.cable_slack_percent", 100),
                 NonNegative(file.Project.ServiceLoopMillimetres, "project.service_loop_mm")),
         };
+        if (file.ElectricalRules is not null)
+        {
+            document.ElectricalRules = new ElectricalRuleProfile(
+                RequireText(file.ElectricalRules.Id, "electrical_rules.id"),
+                RequireText(file.ElectricalRules.InstallationStandard, "electrical_rules.installation_standard"),
+                RequireText(file.ElectricalRules.InstallationStandardEdition, "electrical_rules.installation_standard_edition"),
+                RequireText(file.ElectricalRules.CableSizingGuide, "electrical_rules.cable_sizing_guide"),
+                RequireText(file.ElectricalRules.CableSizingGuideEdition, "electrical_rules.cable_sizing_guide_edition"));
+        }
         if (file.Space is not null)
         {
             document.Space = new SpaceVolume(
@@ -254,6 +271,8 @@ public static class ProjectToml
         Circuit = Name((cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).Preset),
         Shielding = (cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).Shielding,
         PoeCapable = (cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).PoeCapable,
+        OutsideDiameterMillimetres = (cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).OutsideDiameterMillimetres,
+        Design = ToFile((cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).Design),
         Conductors = (cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).Conductors.Select(item => new ConductorFile
         {
             Id = item.Id,
@@ -280,8 +299,40 @@ public static class ProjectToml
                 item.OutsideDiameterMillimetres is double diameter ? Positive(diameter, "conductor outside_diameter_mm") : null,
                 item.TerminalLabel)),
             string.IsNullOrWhiteSpace(source.Shielding) ? "none" : source.Shielding,
-            source.PoeCapable);
+            source.PoeCapable,
+            source.OutsideDiameterMillimetres is double outsideDiameter ? Positive(outsideDiameter, "cable outside_diameter_mm") : null,
+            CircuitDesign(source.Design));
     }
+
+    private static CircuitDesignFile? ToFile(CircuitDesign? design) => design is null ? null : new CircuitDesignFile
+    {
+        NominalVoltageVolts = design.NominalVoltageVolts,
+        PhaseCount = design.PhaseCount,
+        ConductorMaterial = Name(design.ConductorMaterial),
+        LoadedConductorCount = design.LoadedConductorCount,
+        DesignCurrentAmperes = design.DesignCurrentAmperes,
+        ProtectiveDeviceAmperes = design.ProtectiveDeviceAmperes,
+        ProtectiveDeviceCharacteristic = design.ProtectiveDeviceCharacteristic,
+        ReferenceCurrentCarryingCapacityAmperes = design.ReferenceCurrentCarryingCapacityAmperes,
+        AmbientCorrectionFactor = design.AmbientCorrectionFactor,
+        GroupingCorrectionFactor = design.GroupingCorrectionFactor,
+        ThermalInsulationCorrectionFactor = design.ThermalInsulationCorrectionFactor,
+        ReferenceSource = design.ReferenceSource,
+    };
+
+    private static CircuitDesign? CircuitDesign(CircuitDesignFile? source) => source is null ? null : new CircuitDesign(
+        Positive(source.NominalVoltageVolts, "design.nominal_voltage_v"),
+        source.PhaseCount,
+        ParseEnum<ConductorMaterial>(source.ConductorMaterial, "design.conductor_material"),
+        source.LoadedConductorCount,
+        OptionalPositive(source.DesignCurrentAmperes, "design.design_current_a"),
+        OptionalPositive(source.ProtectiveDeviceAmperes, "design.protective_device_a"),
+        source.ProtectiveDeviceCharacteristic,
+        OptionalPositive(source.ReferenceCurrentCarryingCapacityAmperes, "design.reference_capacity_a"),
+        Positive(source.AmbientCorrectionFactor, "design.ambient_factor"),
+        Positive(source.GroupingCorrectionFactor, "design.grouping_factor"),
+        Positive(source.ThermalInsulationCorrectionFactor, "design.thermal_insulation_factor"),
+        source.ReferenceSource);
 
     private static AnnotationFile ToFile(Annotation annotation) => new()
     {
@@ -411,6 +462,9 @@ public static class ProjectToml
     private static double? OptionalNonNegative(double? value, string field) =>
         value is double number ? NonNegative(number, field) : null;
 
+    private static double? OptionalPositive(double? value, string field) =>
+        value is double number ? Positive(number, field) : null;
+
     private static string RequireText(string? value, string field) =>
         !string.IsNullOrWhiteSpace(value) ? value : throw new ProjectFormatException($"Missing or empty {field}.");
 
@@ -445,6 +499,9 @@ public static class ProjectToml
         [JsonPropertyName("project")]
         public ProjectMetadata? Project { get; set; }
 
+        [JsonPropertyName("electrical_rules")]
+        public ElectricalRulesFile? ElectricalRules { get; set; }
+
         [JsonPropertyName("space")]
         public SpaceFile? Space { get; set; }
 
@@ -465,6 +522,15 @@ public static class ProjectToml
 
         [JsonPropertyName("wall_dimensions")]
         public List<WallDimensionFile> WallDimensions { get; set; } = [];
+    }
+
+    private sealed class ElectricalRulesFile
+    {
+        [JsonPropertyName("id")] public string? Id { get; set; }
+        [JsonPropertyName("installation_standard")] public string? InstallationStandard { get; set; }
+        [JsonPropertyName("installation_standard_edition")] public string? InstallationStandardEdition { get; set; }
+        [JsonPropertyName("cable_sizing_guide")] public string? CableSizingGuide { get; set; }
+        [JsonPropertyName("cable_sizing_guide_edition")] public string? CableSizingGuideEdition { get; set; }
     }
 
     private sealed class SpaceFile
@@ -628,8 +694,30 @@ public static class ProjectToml
         [JsonPropertyName("poe_capable")]
         public bool PoeCapable { get; set; }
 
+        [JsonPropertyName("outside_diameter_mm")]
+        public double? OutsideDiameterMillimetres { get; set; }
+
+        [JsonPropertyName("design")]
+        public CircuitDesignFile? Design { get; set; }
+
         [JsonPropertyName("conductors")]
         public List<ConductorFile> Conductors { get; set; } = [];
+    }
+
+    private sealed class CircuitDesignFile
+    {
+        [JsonPropertyName("nominal_voltage_v")] public double NominalVoltageVolts { get; set; }
+        [JsonPropertyName("phase_count")] public int PhaseCount { get; set; }
+        [JsonPropertyName("conductor_material")] public string ConductorMaterial { get; set; } = "copper";
+        [JsonPropertyName("loaded_conductor_count")] public int? LoadedConductorCount { get; set; }
+        [JsonPropertyName("design_current_a")] public double? DesignCurrentAmperes { get; set; }
+        [JsonPropertyName("protective_device_a")] public double? ProtectiveDeviceAmperes { get; set; }
+        [JsonPropertyName("protective_device_characteristic")] public string? ProtectiveDeviceCharacteristic { get; set; }
+        [JsonPropertyName("reference_capacity_a")] public double? ReferenceCurrentCarryingCapacityAmperes { get; set; }
+        [JsonPropertyName("ambient_factor")] public double AmbientCorrectionFactor { get; set; } = 1;
+        [JsonPropertyName("grouping_factor")] public double GroupingCorrectionFactor { get; set; } = 1;
+        [JsonPropertyName("thermal_insulation_factor")] public double ThermalInsulationCorrectionFactor { get; set; } = 1;
+        [JsonPropertyName("reference_source")] public string? ReferenceSource { get; set; }
     }
 
     private sealed class ConductorFile
