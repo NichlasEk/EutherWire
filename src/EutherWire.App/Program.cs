@@ -57,6 +57,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     private OpeningKind _openingKind = OpeningKind.GarageDoor;
     private ViewMode _viewMode;
     private MountingSurface _activeSurface = MountingSurface.FloorInterior;
+    private double? _wallSnapHeightMillimetres;
 
     public EutherWireApplication(ProjectDocument document, string? projectDirectory, bool startIn3D = false, bool startInWall = false, string? startupCamera = null)
     {
@@ -256,7 +257,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             {
                 Point3 destination = active.Kind == EditHandleKind.Elevation && _viewMode == ViewMode.ThreeD
                     ? SnapElevationHandle(active, pointer.Y)
-                    : SnapSpatialHandle(ScreenToSpatial(pointer.X, pointer.Y));
+                    : SnapSpatialHandle(active, ScreenToSpatial(pointer.X, pointer.Y));
                 DocumentHandleEditor.SetSpatialPosition(_document, active, destination);
             }
             else
@@ -294,10 +295,18 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
-    private static Point3 SnapSpatialHandle(Point3 point) => new(
-        Math.Round(point.X / 100) * 100,
-        Math.Round(point.Y / 100) * 100,
-        Math.Round(point.Z / 100) * 100);
+    private Point3 SnapSpatialHandle(EditHandleId handle, Point3 point)
+    {
+        Point3 snapped = new(
+            Math.Round(point.X / 100) * 100,
+            Math.Round(point.Y / 100) * 100,
+            Math.Round(point.Z / 100) * 100);
+        bool deviceHeightHandle = (handle.Kind is EditHandleKind.Move or EditHandleKind.Elevation) &&
+            _document.Devices.ContainsKey(handle.ObjectId);
+        return _viewMode == ViewMode.Wall && deviceHeightHandle && _wallSnapHeightMillimetres is double height
+            ? new Point3(snapped.X, snapped.Y, handle.Kind == EditHandleKind.Elevation ? height + DocumentHandles.ElevationHandleOffsetMillimetres : height)
+            : snapped;
+    }
 
     private Point3 SnapElevationHandle(EditHandleId handle, double screenY)
     {
@@ -336,6 +345,10 @@ internal sealed class EutherWireApplication : IForgeApplication
     private Point3 SnapRoutePoint(Point3 point)
     {
         Point3 snapped = new(Math.Round(point.X / 100) * 100, Math.Round(point.Y / 100) * 100, Math.Round(point.Z / 100) * 100);
+        if (_viewMode == ViewMode.Wall && _wallSnapHeightMillimetres is double wallHeight)
+        {
+            snapped = new Point3(snapped.X, snapped.Y, wallHeight);
+        }
         if (_draftPoints.Count == 0)
         {
             return snapped;
@@ -393,6 +406,10 @@ internal sealed class EutherWireApplication : IForgeApplication
     private void PlaceDevice(Point3 position)
     {
         Point3 snapped = new(Math.Round(position.X / 100) * 100, Math.Round(position.Y / 100) * 100, Math.Round(position.Z / 100) * 100);
+        if (_viewMode == ViewMode.Wall && _wallSnapHeightMillimetres is double wallHeight)
+        {
+            snapped = new Point3(snapped.X, snapped.Y, wallHeight);
+        }
         ObjectId id = ObjectId.Parse($"junction-{Guid.NewGuid():N}");
         int number = _document.Devices.Values.Count(device => device.Kind == _placementKind) + 1;
         MountingSurface surface = _viewMode == ViewMode.Plan ? MountingSurface.Free : _activeSurface;
@@ -551,6 +568,17 @@ internal sealed class EutherWireApplication : IForgeApplication
             {
                 SetOpeningWall(CurrentWallDirection(), true);
                 return true;
+            }
+            for (int index = 0; index < WallSnapHeights.Length; index++)
+            {
+                if (WallHeightSnapRect(index).Contains(pointer.X, pointer.Y))
+                {
+                    _wallSnapHeightMillimetres = WallSnapHeights[index];
+                    _statusMessage = _wallSnapHeightMillimetres is double height
+                        ? $"Wall mounting height: {height:0} mm"
+                        : "Wall mounting height: free 100 mm grid";
+                    return true;
+                }
             }
         }
         if (_viewMode == ViewMode.ThreeD && CameraRect().Contains(pointer.X, pointer.Y))
@@ -1490,6 +1518,18 @@ internal sealed class EutherWireApplication : IForgeApplication
     {
         Point3[] corners = OpeningCorners(opening);
         uint color = selected ? 0xffffcc66 : opening.Kind == OpeningKind.Window ? 0xff78c7e8 : 0xffd8895b;
+        (double X, double Y)[] projected = corners.Select(_cameraWall.Project).ToArray();
+        int cutoutLeft = (int)Math.Round(projected.Min(point => point.X));
+        int cutoutTop = (int)Math.Round(projected.Min(point => point.Y));
+        int cutoutRight = (int)Math.Round(projected.Max(point => point.X));
+        int cutoutBottom = (int)Math.Round(projected.Max(point => point.Y));
+        uint cutoutColor = opening.Kind == OpeningKind.Window ? 0xff102833 : 0xff17212a;
+        canvas.FillRect(
+            cutoutLeft,
+            cutoutTop,
+            Math.Max(1, cutoutRight - cutoutLeft),
+            Math.Max(1, cutoutBottom - cutoutTop),
+            cutoutColor);
         for (int index = 0; index < corners.Length; index++)
         {
             DrawWallLine(canvas, corners[index], corners[(index + 1) % corners.Length], color, selected ? 5 : 3);
@@ -1589,6 +1629,17 @@ internal sealed class EutherWireApplication : IForgeApplication
         DrawChromeButton(canvas, outside, "OUTSIDE", true);
         RectI active = IsExteriorWall(_activeSurface) ? outside : inside;
         canvas.DrawRect(active.X - 2, active.Y - 2, active.Width + 4, active.Height + 4, 0xffffcc66);
+
+        canvas.DrawText(ToolbarWidth + 16, 82, "HEIGHT", 0xff9eb0bb);
+        for (int index = 0; index < WallSnapHeights.Length; index++)
+        {
+            RectI rect = WallHeightSnapRect(index);
+            DrawChromeButton(canvas, rect, WallSnapHeightLabels[index], true);
+            if (WallSnapHeights[index] == _wallSnapHeightMillimetres)
+            {
+                canvas.DrawRect(rect.X - 2, rect.Y - 2, rect.Width + 4, rect.Height + 4, 0xff61e294);
+            }
+        }
     }
 
     private void DrawGrid(SoftwareCanvas canvas, RectI work)
@@ -1813,7 +1864,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         string status = _viewMode switch
         {
             ViewMode.ThreeD => $"3D {_activeSurface}   X {spatialPoint.X:0}   Y {spatialPoint.Y:0}   Z {spatialPoint.Z:0} mm   RMB orbit · MMB pan · wheel zoom",
-            ViewMode.Wall => $"WALL {_activeSurface}   ALONG {_cameraWall.HorizontalCoordinate(spatialPoint):0}   FLOOR {spatialPoint.Z:0} mm   ZOOM {_cameraWall.ZoomPercent}%   MMB/RMB pan · wheel zoom",
+            ViewMode.Wall => $"WALL {_activeSurface}   ALONG {_cameraWall.HorizontalCoordinate(spatialPoint):0}   FLOOR {spatialPoint.Z:0} mm   SNAP {(_wallSnapHeightMillimetres is double snapHeight ? $"{snapHeight:0}" : "FREE")}   ZOOM {_cameraWall.ZoomPercent}%",
             _ => $"X {spatialPoint.X:0} mm   Y {spatialPoint.Y:0} mm   Zoom {_camera.PixelsPerMillimetre * 1000:0} px/m   MMB/RMB pan   Wheel zoom",
         };
         canvas.DrawText(ToolbarWidth + 12, work.Bottom + 10, status, 0xff91a6b3);
@@ -2190,6 +2241,8 @@ internal sealed class EutherWireApplication : IForgeApplication
         new(ToolbarWidth + 16 + index * 46, 38, 40, 30);
     private static RectI WallOverlayFaceRect(bool exterior) =>
         new(ToolbarWidth + 208 + (exterior ? 88 : 0), 38, 80, 30);
+    private static RectI WallHeightSnapRect(int index) =>
+        new(ToolbarWidth + 68 + index * 66, 74, 60, 30);
 
     private static void DrawChromeButton(SoftwareCanvas canvas, RectI rect, string label, bool enabled)
     {
@@ -2299,6 +2352,9 @@ internal sealed class EutherWireApplication : IForgeApplication
         OpeningKind.Window,
         OpeningKind.Penetration,
     ];
+
+    private static readonly double?[] WallSnapHeights = [null, 300, 1100, 2200, 2400];
+    private static readonly string[] WallSnapHeightLabels = ["FREE", "300", "1100", "2200", "2400"];
 
     private static string OpeningLabel(OpeningKind kind) => kind switch
     {

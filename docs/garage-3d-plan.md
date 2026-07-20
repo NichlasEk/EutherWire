@@ -70,6 +70,10 @@ The intended workflow is:
   and distance from the nearest visible corner.
 - WALL zoom has 23 discrete levels from 20% to 3,200% so both whole-wall
   overview and small penetration details remain practical.
+- WALL masks its metric grid inside openings, giving doors, windows, garage
+  doors, and penetrations a clear cutout instead of drawing them over the wall.
+- Persistent FREE/300/1100/2200/2400 mm mounting profiles snap new devices,
+  new wall routes, and device drag handles to common finished-floor heights.
 
 The current renderer is deliberately a clear technical installation view, not
 a photorealistic game renderer. It uses WaylandForge's deterministic software
@@ -90,14 +94,15 @@ All of these remain command-based and addressable without screen coordinates.
 
 The first wall-elevation slice is implemented. The next refinement is to add
 dimension annotations that can be positioned for printed documentation, snap
-profiles for common mounting heights, and direct wall-local route-vertex Z
-handles suitable for touch.
+profiles tied to symbol/library metadata, and direct wall-local route-vertex Z
+handles suitable for touch. The first manual common-height profile row is now
+available in WALL.
 
 ### Garage geometry
 
 - beams, pillars, workbench, and vehicle clearance volumes;
 - imported measured floor plan as a calibration layer;
-- subtract opening areas from filled wall rendering;
+- extend WALL's opening masks into future filled 3D wall surfaces;
 - collision and clearance diagnostics;
 - translucent wall hiding so routes behind a wall remain understandable.
 

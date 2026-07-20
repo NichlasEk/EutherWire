@@ -75,6 +75,12 @@ devices and openings show offsets from finished floor and the nearest visible
 corner. Middle/right drag pans; the wheel steps through 23 pointer-anchored zoom
 levels from 20% overview to 3200% detail.
 
+Wall openings mask the metric grid so doors, windows, garage doors, and
+penetrations read as real cutouts. The persistent `HEIGHT` row offers `FREE`,
+`300`, `1100`, `2200`, and `2400` mm mounting profiles. A profile snaps newly
+placed wall devices, new WIRE/PIPE points, and dragged device handles to that
+finished-floor height; `FREE` returns to the ordinary 100 mm grid.
+
 This initializes WaylandForge if needed, builds the solution, and opens a
 writable Garage Draft under `.eutherwire-work/`. The tracked example is never
 modified. Other useful modes are:

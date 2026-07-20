@@ -70,6 +70,9 @@ board, PoE switch, camera, conduit, CAT6 cable, and a garage-door opening.
 - Selected wall devices and openings show finished-floor height and nearest
   visible-corner offset.
 - WALL has 23 pointer-anchored zoom levels from 20% to 3,200% plus pan.
+- WALL masks the grid inside building openings so they read as actual cutouts.
+- FREE/300/1100/2200/2400 mm height profiles snap new mounted devices, new
+  wall routes, and dragged device handles to common finished-floor heights.
 
 ### Garage geometry and openings
 
@@ -133,8 +136,8 @@ analysis errors or warnings.
 
 - The 3D renderer is a deterministic technical installation view, not a
   photorealistic room renderer.
-- Openings are visible geometry but are not yet subtracted from filled wall
-  surfaces.
+- WALL has visual opening cutouts; future filled 3D walls still need the same
+  subtraction treatment.
 - Wall elevations do not yet have printable, repositionable dimension objects.
 - Route vertices can move in 3D, but dedicated one-axis touch-friendly Z
   handles still need to be added for them.
@@ -157,10 +160,11 @@ The first wall-elevation editing mode now provides:
 5. nearest-corner and finished-floor offsets;
 6. command-based semantic-handle edits over the shared model.
 
-The next recommended slice is to subtract openings from filled walls, add
-printable wall dimensions and common mounting-height snap profiles, then add
-route-vertex Z handles and collision/clearance diagnostics. The wall-local
-coordinate system is also the basis for phone calibration and AR overlays.
+The next recommended slice is to add printable wall dimensions and bind common
+mounting heights to symbol/library metadata, then add route-vertex Z handles
+and collision/clearance diagnostics. Future filled 3D walls should reuse the
+WALL opening masks. The wall-local coordinate system is also the basis for
+phone calibration and AR overlays.
 
 ## Mobile direction
 
