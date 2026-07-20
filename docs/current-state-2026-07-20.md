@@ -176,6 +176,11 @@ The first wall-elevation editing mode now provides:
 12. atomic group deletion plus `Ctrl+D` duplication with stable new IDs,
     unique labels, spatial offset, and remapped internal cable/device/conduit
     references.
+13. blue drag-box selection on empty canvas, optionally additive with `Ctrl`,
+    using visible object anchors in each editing view;
+14. group dragging through the primary move handle, translating full routes,
+    wall dimensions, openings, annotations, and devices as one undo command,
+    with `Esc` restoring the pre-drag state.
 
 The next recommended slice is to export printable wall elevations containing
 the new dimensions and bind common mounting heights to symbol/library metadata,

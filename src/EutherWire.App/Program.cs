@@ -46,6 +46,11 @@ internal sealed class EutherWireApplication : IForgeApplication
     private ObjectId? _selectedObjectId;
     private readonly HashSet<ObjectId> _selectedObjectIds = [];
     private bool _controlPressed;
+    private bool _groupDragging;
+    private Vector2 _groupDragDelta;
+    private Point2? _selectionBoxStart;
+    private Point2 _selectionBoxCurrent;
+    private bool _selectionBoxAdditive;
     private ToolKind _activeTool = ToolKind.Select;
     private Point2 _dragOrigin;
     private Point3 _dragOriginSpatial;
@@ -113,6 +118,7 @@ internal sealed class EutherWireApplication : IForgeApplication
                 DrawHandles(canvas);
             }
             DrawToolHint(canvas, work, frame.Pointer);
+            DrawSelectionBox(canvas);
         }
 
         DrawChrome(canvas, work, frame.Pointer);
@@ -168,6 +174,21 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private void CancelCurrentOperation()
     {
+        if (_selectionBoxStart is not null)
+        {
+            _selectionBoxStart = null;
+            _statusMessage = "Box selection cancelled";
+            return;
+        }
+        if (_groupDragging)
+        {
+            new TranslateObjectsCommand(_selectedObjectIds, new Vector2(-_groupDragDelta.X, -_groupDragDelta.Y)).Apply(_document);
+            _groupDragging = false;
+            _groupDragDelta = default;
+            _activeHandle = null;
+            _statusMessage = "Group move cancelled";
+            return;
+        }
         if (_activeHandle is EditHandleId handle)
         {
             if (_viewMode != ViewMode.Plan && handle.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Elevation or EditHandleKind.Vertex)
@@ -297,10 +318,20 @@ internal sealed class EutherWireApplication : IForgeApplication
             {
                 _dragOrigin = DocumentHandleEditor.RequirePosition(_document, handleId);
                 _dragOriginSpatial = DocumentHandleEditor.RequireSpatialPosition(_document, handleId);
+                _groupDragging = handleId.Kind == EditHandleKind.Move && _selectedObjectIds.Count > 1;
+                _groupDragDelta = default;
             }
             else
             {
                 ObjectId? hit = HitObject(pointer.X, pointer.Y);
+                if (hit is null)
+                {
+                    _selectionBoxStart = new Point2(pointer.X, pointer.Y);
+                    _selectionBoxCurrent = _selectionBoxStart.Value;
+                    _selectionBoxAdditive = _controlPressed;
+                    if (!_controlPressed) SelectOnly(null);
+                    return;
+                }
                 if (_controlPressed && hit is ObjectId toggled) ToggleSelection(toggled);
                 else SelectOnly(hit);
                 if (_selectedObjectId is ObjectId selectedId &&
@@ -319,22 +350,58 @@ internal sealed class EutherWireApplication : IForgeApplication
             }
         }
 
-        if (pressed && _activeHandle is EditHandleId active)
+        if (pressed && _selectionBoxStart is not null)
         {
-            if (_viewMode != ViewMode.Plan && active.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Elevation or EditHandleKind.Vertex)
+            _selectionBoxCurrent = new Point2(pointer.X, pointer.Y);
+        }
+
+        if (released && _selectionBoxStart is not null)
+        {
+            CompleteBoxSelection();
+            return;
+        }
+
+        if (pressed && _activeHandle is EditHandleId active && _groupDragging)
+        {
+            Point3 destination = _viewMode == ViewMode.Plan
+                ? new Point3(ScreenToDocument(pointer.X, pointer.Y).X, ScreenToDocument(pointer.X, pointer.Y).Y, _dragOriginSpatial.Z)
+                : SnapSpatialHandle(active, ScreenToSpatial(pointer.X, pointer.Y));
+            var total = new Vector2(destination.X - _dragOriginSpatial.X, destination.Y - _dragOriginSpatial.Y);
+            var incremental = new Vector2(total.X - _groupDragDelta.X, total.Y - _groupDragDelta.Y);
+            if (incremental != default) new TranslateObjectsCommand(_selectedObjectIds, incremental).Apply(_document);
+            _groupDragDelta = total;
+        }
+        else if (pressed && _activeHandle is EditHandleId activeHandle)
+        {
+            if (_viewMode != ViewMode.Plan && activeHandle.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Elevation or EditHandleKind.Vertex)
             {
-                Point3 destination = active.Kind == EditHandleKind.Elevation && _viewMode == ViewMode.ThreeD
-                    ? SnapElevationHandle(active, pointer.Y)
-                    : SnapSpatialHandle(active, ScreenToSpatial(pointer.X, pointer.Y));
-                DocumentHandleEditor.SetSpatialPosition(_document, active, destination);
+                Point3 destination = activeHandle.Kind == EditHandleKind.Elevation && _viewMode == ViewMode.ThreeD
+                    ? SnapElevationHandle(activeHandle, pointer.Y)
+                    : SnapSpatialHandle(activeHandle, ScreenToSpatial(pointer.X, pointer.Y));
+                DocumentHandleEditor.SetSpatialPosition(_document, activeHandle, destination);
             }
             else
             {
-                DocumentHandleEditor.SetPosition(_document, active, ScreenToDocument(pointer.X, pointer.Y));
+                DocumentHandleEditor.SetPosition(_document, activeHandle, ScreenToDocument(pointer.X, pointer.Y));
             }
         }
 
-        if (released && _activeHandle is EditHandleId completed)
+        if (released && _activeHandle is not null && _groupDragging)
+        {
+            Vector2 destination = _groupDragDelta;
+            if (destination != default)
+            {
+                new TranslateObjectsCommand(_selectedObjectIds, new Vector2(-destination.X, -destination.Y)).Apply(_document);
+                _history.Execute(_document, new TranslateObjectsCommand(_selectedObjectIds, destination));
+                _dirty = true;
+                _statusMessage = $"Moved {_selectedObjectIds.Count} objects";
+            }
+            _groupDragging = false;
+            _groupDragDelta = default;
+            _activeHandle = null;
+            SyncSelectedLabelEditor();
+        }
+        else if (released && _activeHandle is EditHandleId completed)
         {
             if (_viewMode != ViewMode.Plan && completed.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Elevation or EditHandleKind.Vertex)
             {
@@ -1113,6 +1180,62 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
         SyncSelectedLabelEditor();
     }
+
+    private void CompleteBoxSelection()
+    {
+        Point2 start = _selectionBoxStart ?? _selectionBoxCurrent;
+        RectI rect = SelectionRect(start, _selectionBoxCurrent);
+        HashSet<ObjectId> ids = _selectionBoxAdditive ? _selectedObjectIds.ToHashSet() : [];
+        if (rect.Width >= 4 || rect.Height >= 4)
+        {
+            foreach (ObjectId id in ObjectsInsideSelectionRect(rect)) ids.Add(id);
+        }
+        SelectMany(ids);
+        _selectionBoxStart = null;
+        _statusMessage = ids.Count == 0 ? "Selection cleared" : $"Box selected {ids.Count} objects";
+    }
+
+    private IEnumerable<ObjectId> ObjectsInsideSelectionRect(RectI rect)
+    {
+        bool Contains(Point3 point)
+        {
+            if (_viewMode == ViewMode.Wall && !_cameraWall.IsOnWall(point)) return false;
+            (double x, double y) = _viewMode switch
+            {
+                ViewMode.Plan => _camera.DocumentToScreen(point.Plan),
+                ViewMode.ThreeD => _camera3D.Project(point),
+                _ => _cameraWall.Project(point),
+            };
+            return rect.Contains((int)Math.Round(x), (int)Math.Round(y));
+        }
+        foreach (Device item in _document.Devices.Values)
+            if ((_viewMode != ViewMode.Wall || item.MountingSurface == _activeSurface) && Contains(new Point3(item.Position.X, item.Position.Y, item.ElevationMillimetres))) yield return item.Id;
+        foreach (BuildingOpening item in _document.Openings.Values)
+            if ((_viewMode != ViewMode.Wall || item.Surface == _activeSurface) && Contains(item.Centre)) yield return item.Id;
+        foreach (Conduit item in _document.Conduits.Values)
+            if (item.Route.SpatialPoints.Any(Contains)) yield return item.Id;
+        foreach (CableRoute item in _document.Cables.Values)
+            if (item.Route.SpatialPoints.Any(Contains)) yield return item.Id;
+        if (_viewMode == ViewMode.Plan)
+            foreach (Annotation item in _document.Annotations.Values)
+                if (Contains(new Point3(item.Position.X, item.Position.Y, 0))) yield return item.Id;
+        if (_viewMode == ViewMode.Wall)
+            foreach (WallDimension item in _document.WallDimensions.Values)
+                if (item.Surface == _activeSurface && Contains(new Point3((item.Start.X + item.End.X) / 2, (item.Start.Y + item.End.Y) / 2, (item.Start.Z + item.End.Z) / 2))) yield return item.Id;
+    }
+
+    private void DrawSelectionBox(SoftwareCanvas canvas)
+    {
+        if (_selectionBoxStart is not Point2 start) return;
+        RectI rect = SelectionRect(start, _selectionBoxCurrent);
+        canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, 0xff63d4ff);
+    }
+
+    private static RectI SelectionRect(Point2 start, Point2 end) => new(
+        (int)Math.Round(Math.Min(start.X, end.X)),
+        (int)Math.Round(Math.Min(start.Y, end.Y)),
+        Math.Max(1, (int)Math.Round(Math.Abs(end.X - start.X))),
+        Math.Max(1, (int)Math.Round(Math.Abs(end.Y - start.Y))));
 
     private void SyncSelectedLabelEditor()
     {

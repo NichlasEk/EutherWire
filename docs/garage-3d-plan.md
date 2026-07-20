@@ -85,8 +85,9 @@ canvas and remains useful on systems without a GPU API configured.
 
 Multi-selection now supports additive `Ctrl`-click, atomic dependency-safe
 Delete, and `Ctrl+D`. Duplicated connected objects receive stable IDs and keep
-their copied cable/device/conduit references. Box selection and group dragging
-remain the next interaction refinements.
+their copied cable/device/conduit references. Dragging on empty canvas creates
+a view-aware box selection, and dragging the primary object's move handle
+translates the complete group through one undoable command.
 
 ## Next 3D slices
 

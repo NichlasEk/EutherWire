@@ -723,6 +723,51 @@ public sealed class DuplicateObjectsCommand(IEnumerable<ObjectId> objectIds, Vec
     }
 }
 
+public sealed class TranslateObjectsCommand(IEnumerable<ObjectId> objectIds, Vector2 delta) : IDocumentCommand
+{
+    private readonly ObjectId[] _ids = objectIds.Distinct().ToArray();
+    public string Description => $"Move {_ids.Length} objects";
+    public void Apply(ProjectDocument document) => Translate(document, delta);
+    public void Undo(ProjectDocument document) => Translate(document, new Vector2(-delta.X, -delta.Y));
+
+    private void Translate(ProjectDocument document, Vector2 movement)
+    {
+        Point3 Move(Point3 point) => new(point.X + movement.X, point.Y + movement.Y, point.Z);
+        foreach (ObjectId id in _ids)
+        {
+            if (document.Conduits.TryGetValue(id, out Conduit? conduit))
+            {
+                Polyline route = new(conduit.Route.SpatialPoints.Select(Move));
+                document.Replace(conduit with { Route = route });
+                foreach (CableRoute cable in document.Cables.Values.Where(cable => cable.ConduitId == id).ToArray())
+                    document.Replace(cable with { Route = route });
+            }
+        }
+        foreach (ObjectId id in _ids)
+        {
+            if (document.Cables.TryGetValue(id, out CableRoute? cable) && cable.ConduitId is null)
+                document.Replace(cable with { Route = new Polyline(cable.Route.SpatialPoints.Select(Move)) });
+        }
+        foreach (ObjectId id in _ids)
+        {
+            if (document.Devices.TryGetValue(id, out Device? device))
+            {
+                Point3 current = new(device.Position.X, device.Position.Y, device.ElevationMillimetres);
+                DocumentHandleEditor.SetSpatialPosition(document, new EditHandleId(id, EditHandleKind.Move), Move(current));
+            }
+            else if (document.Openings.TryGetValue(id, out BuildingOpening? opening))
+                opening.Centre = BuildingOpeningGeometry.ConstrainCentre(document.Space, opening.Surface, Move(opening.Centre), opening.WidthMillimetres, opening.HeightMillimetres);
+            else if (document.Annotations.TryGetValue(id, out Annotation? annotation))
+                annotation.Position += movement;
+            else if (document.WallDimensions.TryGetValue(id, out WallDimension? dimension))
+            {
+                dimension.Start = MountingSurfaceGeometry.Constrain(document.Space, dimension.Surface, Move(dimension.Start));
+                dimension.End = MountingSurfaceGeometry.Constrain(document.Space, dimension.Surface, Move(dimension.End));
+            }
+        }
+    }
+}
+
 public sealed class InsertRouteVertexCommand(ObjectId routeId, int index, Point2 position) : IDocumentCommand
 {
     public string Description => $"Insert {routeId}:vertex:{index}";

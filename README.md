@@ -93,6 +93,13 @@ labels; references between selected devices, cables, and conduits are remapped
 to their copies. WALL copies move 300 mm along the active wall, while PLAN/3D
 copies move 300 mm in X and Y.
 
+Drag from empty canvas with `SEL` to create a blue box selection; hold `Ctrl`
+to add the enclosed objects to the current selection. Selection uses visible
+object anchors in PLAN, 3D, and the active WALL surface. To move a group, drag
+the primary object's normal move handle. Devices, openings, annotations,
+complete cable/conduit routes, and both wall-dimension endpoints translate as
+one undoable command. `Esc` during the drag restores the entire group.
+
 Garage Draft now includes a first-class 5,000 × 2,200 mm garage-door opening
 on the south wall. Openings retain their wall, 3D centre, dimensions, stable
 handles, and IDs through TOML, SVG, and PNG export.

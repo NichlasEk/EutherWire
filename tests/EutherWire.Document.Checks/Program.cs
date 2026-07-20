@@ -184,6 +184,12 @@ Require(groupedHistory.Undo(grouped) && duplicate.CreatedIds.All(id => !grouped.
     "Grouped duplication must be one undo operation.");
 Require(groupedHistory.Redo(grouped) && duplicate.CreatedIds.All(grouped.Contains),
     "Redo must restore duplicated objects with the same stable IDs.");
+ObjectId copiedCableId = grouped.Cables.Keys.Single(id => id != cableId);
+groupedHistory.Execute(grouped, new TranslateObjectsCommand(duplicate.CreatedIds, new Vector2(200, -100)));
+Require(grouped.RequireCable(copiedCableId).Route.SpatialPoints[0] == new Point3(500, 200, 0),
+    "Group movement must translate complete copied route geometry.");
+Require(groupedHistory.Undo(grouped) && grouped.RequireCable(copiedCableId).Route.SpatialPoints[0] == new Point3(300, 300, 0),
+    "Group movement must be one undoable command.");
 
 var additions = new ProjectDocument("Route commands");
 var addedConduit = new Conduit(ObjectId.Parse("added-pipe"), "RÖR-01", 25, new Polyline([new Point2(0, 0), new Point2(1000, 0)]));
