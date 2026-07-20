@@ -45,7 +45,8 @@ public static class ProjectTemplates
             "RÖR-R07",
             25,
             new Polyline(route),
-            InstallationMethod.Concealed));
+            InstallationMethod.Concealed,
+            25));
         document.Add(new CableRoute(
             ObjectId.Parse("camera-north-cat6"),
             "KAM-N-CAT6",

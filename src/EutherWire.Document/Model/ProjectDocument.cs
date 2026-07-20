@@ -15,7 +15,7 @@ public sealed class ProjectDocument
         Name = name;
     }
 
-    public int SchemaVersion => 8;
+    public int SchemaVersion => 9;
     public string Name { get; set; }
     public PlanningSettings Planning { get; internal set; } = new();
     public ElectricalRuleProfile ElectricalRules { get; internal set; } = ElectricalRuleProfile.Sweden2026;

@@ -89,9 +89,9 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion is < 1 or > 8)
+        if (file.Project.SchemaVersion is < 1 or > 9)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 8.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 9.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
@@ -160,7 +160,8 @@ public static class ProjectToml
                 RequireText(source.Label, $"conduits[{source.Id}].label"),
                 Positive(source.InnerDiameterMillimetres, $"conduits[{source.Id}].inner_diameter_mm"),
                 Polyline(source.Points, $"conduits[{source.Id}].points"),
-                ParseEnum<InstallationMethod>(source.InstallationMethod, "installation method")));
+                ParseEnum<InstallationMethod>(source.InstallationMethod, "installation method"),
+                OptionalPositive(source.NominalDiameterMillimetres, $"conduits[{source.Id}].nominal_diameter_mm")));
         }
         foreach (CableFile source in file.Cables)
         {
@@ -252,6 +253,7 @@ public static class ProjectToml
         Id = conduit.Id.Value,
         Label = conduit.Label,
         InnerDiameterMillimetres = conduit.InnerDiameterMillimetres,
+        NominalDiameterMillimetres = conduit.NominalDiameterMillimetres,
         InstallationMethod = Name(conduit.InstallationMethod),
         Points = conduit.Route.SpatialPoints.Select(point => new[] { point.X, point.Y, point.Z }).ToList(),
     };
@@ -645,6 +647,9 @@ public static class ProjectToml
 
         [JsonPropertyName("inner_diameter_mm")]
         public double InnerDiameterMillimetres { get; set; }
+
+        [JsonPropertyName("nominal_diameter_mm")]
+        public double? NominalDiameterMillimetres { get; set; }
 
         [JsonPropertyName("installation_method")]
         public string? InstallationMethod { get; set; }

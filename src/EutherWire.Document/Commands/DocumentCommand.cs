@@ -403,21 +403,42 @@ public sealed class SetOpeningGeometryCommand(
 
 public sealed class SetCableKindCommand(ObjectId cableId, CableKind kind) : IDocumentCommand
 {
-    private CableKind? _previous;
+    private CableRoute? _previous;
 
     public string Description => $"Set {cableId} cable type";
 
     public void Apply(ProjectDocument document)
     {
         CableRoute cable = document.RequireCable(cableId);
-        _previous ??= cable.Kind;
-        document.Replace(cable with { Kind = kind });
+        _previous ??= cable;
+        document.Replace(cable with { Kind = kind, Electrical = ElectricalCableProfiles.Infer(kind) });
     }
 
     public void Undo(ProjectDocument document)
     {
+        _ = document.RequireCable(cableId);
+        document.Replace(_previous ?? throw new InvalidOperationException("Command has not been applied."));
+    }
+}
+
+public sealed class SetCableElectricalCommand(ObjectId cableId, CableKind kind, ElectricalCableSpec electrical) : IDocumentCommand
+{
+    private CableRoute? _previous;
+
+    public string Description => $"Set {cableId} electrical design";
+
+    public void Apply(ProjectDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(electrical);
         CableRoute cable = document.RequireCable(cableId);
-        document.Replace(cable with { Kind = _previous ?? throw new InvalidOperationException("Command has not been applied.") });
+        _previous ??= cable;
+        document.Replace(cable with { Kind = kind, Electrical = electrical });
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        _ = document.RequireCable(cableId);
+        document.Replace(_previous ?? throw new InvalidOperationException("Command has not been applied."));
     }
 }
 
@@ -442,6 +463,34 @@ public sealed class SetConduitDiameterCommand(ObjectId conduitId, double diamete
     {
         Conduit conduit = document.RequireConduit(conduitId);
         document.Replace(conduit with { InnerDiameterMillimetres = _previous ?? throw new InvalidOperationException("Command has not been applied.") });
+    }
+}
+
+public sealed class SetConduitNominalDiameterCommand(ObjectId conduitId, double nominalDiameterMillimetres) : IDocumentCommand
+{
+    private double? _previous;
+    private bool _captured;
+
+    public string Description => $"Set {conduitId} nominal diameter";
+
+    public void Apply(ProjectDocument document)
+    {
+        if (!double.IsFinite(nominalDiameterMillimetres) || nominalDiameterMillimetres <= 0)
+            throw new ArgumentOutOfRangeException(nameof(nominalDiameterMillimetres));
+        Conduit conduit = document.RequireConduit(conduitId);
+        if (!_captured)
+        {
+            _previous = conduit.NominalDiameterMillimetres;
+            _captured = true;
+        }
+        document.Replace(conduit with { NominalDiameterMillimetres = nominalDiameterMillimetres });
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        Conduit conduit = document.RequireConduit(conduitId);
+        if (!_captured) throw new InvalidOperationException("Command has not been applied.");
+        document.Replace(conduit with { NominalDiameterMillimetres = _previous });
     }
 }
 

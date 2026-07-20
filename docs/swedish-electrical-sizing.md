@@ -25,6 +25,10 @@ complete result therefore requires:
 Unknown diameters remain explicitly unknown. EutherWire does not infer a
 thermal current limit from physical fill.
 
+Schema 9 stores nominal conduit size and actual inner diameter separately.
+Changing a `16 mm` product selection therefore never silently changes the
+diameter used by the fill calculation.
+
 ## Thermal planning check
 
 For a power circuit, the model can store:
@@ -51,3 +55,24 @@ reference capacity while retaining the same calculation and provenance model.
 Voltage drop, fault-loop impedance, automatic disconnection, short-circuit
 withstand, harmonics, manufacturer restrictions, pullability through bends,
 and final electrician verification remain required future checks.
+
+## Desktop workflow
+
+Select a conduit to choose its nominal product size with `-` and `+`, then type
+the manufacturer's actual inner diameter in `INNER MM`. The latter is the only
+diameter used for physical fill.
+
+Select a cable and press `DESIGN` to open the sizing page. The profile arrows
+currently offer CAT6, EKRK 3G2.5, EKRK 5G6, FK 3G1.5, FK 3G2.5, FK 5G2.5, and
+an FK lighting bundle. Enter:
+
+- `IB`: design current;
+- `IN`: protective-device rated current;
+- `REF IZ`: verified reference current-carrying capacity;
+- ambient, grouping, and thermal-insulation correction factors;
+- insulated conductor OD for FK/RK, or overall cable OD for sheathed cable;
+- a reference source identifying where the capacity value came from.
+
+Changing the conductor profile clears `REF IZ` and its source because a value
+for one product or cross-section must never silently follow another. `CABLE`
+returns to installation status, measured length, and route editing.

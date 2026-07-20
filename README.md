@@ -197,11 +197,14 @@ route lengths, recommended cable order length, estimated conduit fill,
 materials, and connection diagnostics. See
 [docs/development-plan.md](docs/development-plan.md).
 
-Schema 8 also separates mechanical conduit fill from thermal circuit sizing.
+Schema 9 also separates nominal conduit size, actual mechanical fill, and thermal circuit sizing.
 Loose FK/RK conductors use their insulated outside diameters, while the thermal
 planning result remains `UNKNOWN` until explicit current, protection,
 correction factors, and a traceable reference capacity are supplied. See
 [docs/swedish-electrical-sizing.md](docs/swedish-electrical-sizing.md).
+The desktop cable inspector exposes this through its `DESIGN` page; conduit
+controls keep nominal product size separate from the manufacturer-specified
+inner diameter used by the fill calculation.
 
 ## Product principles
 

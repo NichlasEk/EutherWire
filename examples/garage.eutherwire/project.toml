@@ -2,7 +2,7 @@ annotations = []
 [project]
 name = "Garage Draft"
 units = "mm"
-schema_version = 8
+schema_version = 9
 cable_slack_percent = 10.0
 service_loop_mm = 1000.0
 [electrical_rules]
@@ -73,6 +73,7 @@ position = [0.0, -350.0]
 id = "camera-north-pipe"
 label = "RÖR-R07"
 inner_diameter_mm = 25.0
+nominal_diameter_mm = 25.0
 installation_method = "concealed"
 points = [[6500.0, 450.0, 2200.0], [6500.0, -2600.0, 2200.0], [10850.0, -2600.0, 2200.0]]
 [[cables]]

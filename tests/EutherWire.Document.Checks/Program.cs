@@ -207,6 +207,8 @@ Require(additions.RequireCable(addedCable.Id).Label == "FIBER-01", "Inspector la
 Require(additionHistory.Undo(additions) && additions.RequireCable(addedCable.Id).Label == "CAT6-01", "Label edits must be undoable.");
 additionHistory.Execute(additions, new SetCableKindCommand(addedCable.Id, CableKind.FibreDuplex));
 Require(additions.RequireCable(addedCable.Id).Kind == CableKind.FibreDuplex, "Cable type edits must use commands.");
+Require(additions.RequireCable(addedCable.Id).Electrical?.Product == CableProductKind.Fibre,
+    "Changing a legacy cable type must update its structured electrical profile.");
 additionHistory.Execute(additions, new SetConduitDiameterCommand(addedConduit.Id, 32));
 Require(additions.RequireConduit(addedConduit.Id).InnerDiameterMillimetres == 32, "Conduit diameter edits must use commands.");
 additionHistory.Execute(additions, new DeleteObjectCommand(addedCable.Id));
@@ -276,8 +278,8 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
-Require(loaded.SchemaVersion == 8 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
-Require(loaded.ElectricalRules == ElectricalRuleProfile.Sweden2026, "Schema 8 must preserve its versioned Swedish electrical rule profile.");
+Require(loaded.SchemaVersion == 9 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.ElectricalRules == ElectricalRuleProfile.Sweden2026, "Schema 9 must preserve its versioned Swedish electrical rule profile.");
 Require(loaded.RequireCable(cableId).Electrical is { Product: CableProductKind.Cat6, Preset: CircuitPreset.Data, Conductors.Count: 4 },
     "Schema 7 must migrate legacy CAT6 into explicit data pairs.");
 Require(loaded.RequireWallDimension(dimensionId).Label == "PORTÖPPNING", "TOML must preserve wall dimensions.");
@@ -304,7 +306,7 @@ Require(!electricalAnalysis.Diagnostics.Any(item => item.Code.StartsWith("electr
 var sizingDocument = new ProjectDocument("16 mm conduit sizing");
 ObjectId sizingConduitId = ObjectId.Parse("pipe-16");
 Polyline sizingRoute = new([new Point2(0, 0), new Point2(5000, 0)]);
-sizingDocument.Add(new Conduit(sizingConduitId, "RÖR-16", 10.7, sizingRoute, InstallationMethod.Concealed));
+sizingDocument.Add(new Conduit(sizingConduitId, "RÖR-16", 10.7, sizingRoute, InstallationMethod.Concealed, 16));
 var sizedFk = new ElectricalCableSpec(CableProductKind.Fk, CircuitPreset.SinglePhase,
     [
         new("l1", ConductorFunction.Line1, "brown", 2.5, 3.4),
@@ -328,7 +330,21 @@ ElectricalDesignCheck sizingCheck = sizingAnalysis.ElectricalDesignChecks.Single
 Require(sizingCheck.Status == DesignCheckStatus.Pass && Math.Abs(sizingCheck.CorrectedCurrentCarryingCapacityAmperes!.Value - 18) < 0.001,
     "Current-capacity planning must apply explicit correction factors and verify Ib <= In <= Iz.");
 Require(sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical!.Design!.ReferenceSource == "licensed test fixture",
-    "Schema 8 must preserve traceable thermal sizing inputs.");
+    "Schema 9 must preserve traceable thermal sizing inputs.");
+Require(sizingLoaded.RequireConduit(sizingConduitId).NominalDiameterMillimetres == 16,
+    "Schema 9 must keep nominal conduit size separate from actual inner diameter.");
+var sizingHistory = new CommandHistory();
+sizingHistory.Execute(sizingLoaded, new SetConduitNominalDiameterCommand(sizingConduitId, 20));
+Require(sizingLoaded.RequireConduit(sizingConduitId).NominalDiameterMillimetres == 20 && sizingLoaded.RequireConduit(sizingConduitId).InnerDiameterMillimetres == 10.7,
+    "Changing nominal conduit size must never silently change the measured inner diameter.");
+Require(sizingHistory.Undo(sizingLoaded) && sizingLoaded.RequireConduit(sizingConduitId).NominalDiameterMillimetres == 16,
+    "Nominal conduit size edits must be undoable.");
+ElectricalCableSpec replacementElectrical = ElectricalCableProfiles.SinglePhase(CableProductKind.Fk, 1.5);
+sizingHistory.Execute(sizingLoaded, new SetCableElectricalCommand(ObjectId.Parse("fk-group"), CableKind.Custom, replacementElectrical));
+Require(sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical == replacementElectrical,
+    "Electrical profile edits must use the undoable command layer.");
+Require(sizingHistory.Undo(sizingLoaded) && sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical!.Design is not null,
+    "Undo must restore the complete electrical design.");
 
 string dangling = serialized.Replace("target:in", "missing:in", StringComparison.Ordinal);
 try

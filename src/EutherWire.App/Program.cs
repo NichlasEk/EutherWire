@@ -67,6 +67,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     private MountingSurface _activeSurface = MountingSurface.FloorInterior;
     private double? _wallSnapHeightMillimetres;
     private Point3? _dimensionStart;
+    private bool _electricalInspectorOpen;
 
     public EutherWireApplication(ProjectDocument document, string? projectDirectory, bool startIn3D = false, bool startInWall = false, string? startupCamera = null)
     {
@@ -809,7 +810,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             }
         }
         ProjectAnalysis analysis = ProjectAnalyzer.Analyze(_document);
-        for (int index = 0; index < Math.Min(3, analysis.Diagnostics.Count); index++)
+        for (int index = 0; !_electricalInspectorOpen && index < Math.Min(3, analysis.Diagnostics.Count); index++)
         {
             ProjectDiagnostic diagnostic = analysis.Diagnostics[index];
             if (diagnostic.ObjectId is ObjectId objectId && DiagnosticRect(inspectorX, index).Contains(pointer.X, pointer.Y))
@@ -829,6 +830,23 @@ internal sealed class EutherWireApplication : IForgeApplication
                 DeleteSelection();
                 return true;
             }
+            if (_document.Cables.TryGetValue(selected, out CableRoute? selectedCable) && ElectricalInspectorRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                _electricalInspectorOpen = !_electricalInspectorOpen;
+                SyncElectricalEditors(selectedCable);
+                _statusMessage = _electricalInspectorOpen ? "Electrical sizing editor" : "Cable editor";
+                return true;
+            }
+            if (_electricalInspectorOpen && _document.Cables.TryGetValue(selected, out selectedCable) && ElectricalProfileMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                CycleElectricalProfile(selectedCable, -1);
+                return true;
+            }
+            if (_electricalInspectorOpen && _document.Cables.TryGetValue(selected, out selectedCable) && ElectricalProfilePlusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                CycleElectricalProfile(selectedCable, 1);
+                return true;
+            }
             if (_document.Devices.TryGetValue(selected, out Device? heightDevice) && ElevationMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
             {
                 AdjustDeviceElevation(heightDevice, -100);
@@ -839,22 +857,22 @@ internal sealed class EutherWireApplication : IForgeApplication
                 AdjustDeviceElevation(heightDevice, 100);
                 return true;
             }
-            if (_document.Cables.TryGetValue(selected, out CableRoute? cable) && PropertyMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            if (!_electricalInspectorOpen && _document.Cables.TryGetValue(selected, out CableRoute? cable) && PropertyMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
             {
                 CycleCableKind(cable, -1);
                 return true;
             }
-            if (_document.Cables.TryGetValue(selected, out cable) && PropertyPlusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            if (!_electricalInspectorOpen && _document.Cables.TryGetValue(selected, out cable) && PropertyPlusRect(inspectorX).Contains(pointer.X, pointer.Y))
             {
                 CycleCableKind(cable, 1);
                 return true;
             }
-            if (_document.Cables.TryGetValue(selected, out cable) && StatusMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            if (!_electricalInspectorOpen && _document.Cables.TryGetValue(selected, out cable) && StatusMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
             {
                 CycleInstallationStatus(cable, -1);
                 return true;
             }
-            if (_document.Cables.TryGetValue(selected, out cable) && StatusPlusRect(inspectorX).Contains(pointer.X, pointer.Y))
+            if (!_electricalInspectorOpen && _document.Cables.TryGetValue(selected, out cable) && StatusPlusRect(inspectorX).Contains(pointer.X, pointer.Y))
             {
                 CycleInstallationStatus(cable, 1);
                 return true;
@@ -869,12 +887,12 @@ internal sealed class EutherWireApplication : IForgeApplication
                 SetConduitDiameter(conduit, 1);
                 return true;
             }
-            if (AddVertexRect(inspectorX).Contains(pointer.X, pointer.Y) && TryGetEditableRoute(selected, out Polyline? addRoute))
+            if (!_electricalInspectorOpen && AddVertexRect(inspectorX).Contains(pointer.X, pointer.Y) && TryGetEditableRoute(selected, out Polyline? addRoute))
             {
                 AddRouteVertex(selected, addRoute!);
                 return true;
             }
-            if (DeleteVertexRect(inspectorX).Contains(pointer.X, pointer.Y) && TryGetEditableRoute(selected, out Polyline? deleteRoute))
+            if (!_electricalInspectorOpen && DeleteVertexRect(inspectorX).Contains(pointer.X, pointer.Y) && TryGetEditableRoute(selected, out Polyline? deleteRoute))
             {
                 DeleteRouteVertex(selected, deleteRoute!);
                 return true;
@@ -988,6 +1006,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         _history.Execute(_document, new SetCableKindCommand(cable.Id, kinds[index]));
         _dirty = true;
         _statusMessage = $"Cable type: {kinds[index]}";
+        SyncElectricalEditors(_document.RequireCable(cable.Id));
     }
 
     private void CycleInstallationStatus(CableRoute cable, int direction)
@@ -997,6 +1016,18 @@ internal sealed class EutherWireApplication : IForgeApplication
         _history.Execute(_document, new SetCableInstallationCommand(cable.Id, statuses[index], cable.ActualLengthMillimetres));
         _dirty = true;
         _statusMessage = $"Installation: {statuses[index]}";
+    }
+
+    private void CycleElectricalProfile(CableRoute cable, int direction)
+    {
+        ElectricalProfile[] profiles = Enum.GetValues<ElectricalProfile>();
+        int current = Array.IndexOf(profiles, MatchElectricalProfile(cable));
+        int index = (current + direction + profiles.Length) % profiles.Length;
+        (CableKind kind, ElectricalCableSpec electrical) = CreateElectricalProfile(profiles[index], cable.Electrical?.Design);
+        _history.Execute(_document, new SetCableElectricalCommand(cable.Id, kind, electrical));
+        _dirty = true;
+        _statusMessage = $"Electrical profile: {ElectricalProfileLabel(profiles[index])}";
+        SyncElectricalEditors(_document.RequireCable(cable.Id));
     }
 
     private void CycleSurface()
@@ -1015,12 +1046,13 @@ internal sealed class EutherWireApplication : IForgeApplication
     private void SetConduitDiameter(Conduit conduit, int direction)
     {
         double[] diameters = [16, 20, 25, 32, 40, 50, 63, 75, 90, 110];
+        double current = conduit.NominalDiameterMillimetres ?? conduit.InnerDiameterMillimetres;
         int nearest = Enumerable.Range(0, diameters.Length)
-            .MinBy(index => Math.Abs(diameters[index] - conduit.InnerDiameterMillimetres));
+            .MinBy(index => Math.Abs(diameters[index] - current));
         int index = Math.Clamp(nearest + direction, 0, diameters.Length - 1);
-        _history.Execute(_document, new SetConduitDiameterCommand(conduit.Id, diameters[index]));
+        _history.Execute(_document, new SetConduitNominalDiameterCommand(conduit.Id, diameters[index]));
         _dirty = true;
-        _statusMessage = $"Conduit diameter: {diameters[index]} mm";
+        _statusMessage = $"Nominal conduit size: {diameters[index]} mm; verify inner diameter";
     }
 
     private bool TryGetEditableRoute(ObjectId id, out Polyline? route)
@@ -1155,6 +1187,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         _selectedObjectIds.Clear();
         _selectedObjectId = id;
         if (id is ObjectId selected) _selectedObjectIds.Add(selected);
+        if (id is not ObjectId cableId || !_document.Cables.ContainsKey(cableId)) _electricalInspectorOpen = false;
     }
 
     private void SelectMany(IEnumerable<ObjectId> ids)
@@ -1163,6 +1196,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         foreach (ObjectId id in ids) _selectedObjectIds.Add(id);
         _selectedObjectId = _selectedObjectIds.LastOrDefault();
         if (_selectedObjectId == default) _selectedObjectId = null;
+        if (_selectedObjectId is not ObjectId cableId || !_document.Cables.ContainsKey(cableId)) _electricalInspectorOpen = false;
         SyncSelectedLabelEditor();
     }
 
@@ -1265,6 +1299,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             _ui.SetText(
                 new UiId($"inspector.actual.{selected}"),
                 selectedCable.ActualLengthMillimetres?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
+            SyncElectricalEditors(selectedCable);
         }
         if (_document.Devices.TryGetValue(selected, out Device? selectedDevice))
         {
@@ -1277,6 +1312,11 @@ internal sealed class EutherWireApplication : IForgeApplication
             SetOpeningDimensionEditor(selected, "width", selectedOpening.WidthMillimetres);
             SetOpeningDimensionEditor(selected, "height", selectedOpening.HeightMillimetres);
         }
+        if (_document.Conduits.TryGetValue(selected, out Conduit? selectedConduit))
+        {
+            _ui.SetText(new UiId($"inspector.conduit.{selected}.inner"),
+                selectedConduit.InnerDiameterMillimetres.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+        }
     }
 
     private void SetDeviceCoordinateEditor(ObjectId id, string axis, double value) =>
@@ -1284,6 +1324,30 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private void SetOpeningDimensionEditor(ObjectId id, string name, double value) =>
         _ui!.SetText(new UiId($"inspector.opening.{id}.{name}"), value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+
+    private void SyncElectricalEditors(CableRoute cable)
+    {
+        if (_ui is null) return;
+        ElectricalCableSpec electrical = cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind);
+        CircuitDesign? design = electrical.Design;
+        SetElectricalEditor(cable.Id, "ib", design?.DesignCurrentAmperes);
+        SetElectricalEditor(cable.Id, "in", design?.ProtectiveDeviceAmperes);
+        SetElectricalEditor(cable.Id, "iz_ref", design?.ReferenceCurrentCarryingCapacityAmperes);
+        SetElectricalEditor(cable.Id, "ambient", design?.AmbientCorrectionFactor ?? 1);
+        SetElectricalEditor(cable.Id, "grouping", design?.GroupingCorrectionFactor ?? 1);
+        SetElectricalEditor(cable.Id, "insulation", design?.ThermalInsulationCorrectionFactor ?? 1);
+        double? outsideDiameter = electrical.Product is CableProductKind.Fk or CableProductKind.Rk
+            ? electrical.Conductors.Select(item => item.OutsideDiameterMillimetres).Distinct().Count() == 1
+                ? electrical.Conductors[0].OutsideDiameterMillimetres
+                : null
+            : electrical.OutsideDiameterMillimetres;
+        SetElectricalEditor(cable.Id, "outside_diameter", outsideDiameter);
+        _ui.SetText(new UiId($"inspector.electrical.{cable.Id}.source"), design?.ReferenceSource ?? string.Empty);
+    }
+
+    private void SetElectricalEditor(ObjectId id, string name, double? value) =>
+        _ui!.SetText(new UiId($"inspector.electrical.{id}.{name}"),
+            value?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
 
     private void SyncRoomEditors()
     {
@@ -2233,7 +2297,10 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             DrawRoomControls(canvas, inspectorX);
         }
-        DrawProjectAnalysis(canvas, inspectorX);
+        if (!_electricalInspectorOpen || _selectedObjectId is not ObjectId electricalCableId || !_document.Cables.ContainsKey(electricalCableId))
+        {
+            DrawProjectAnalysis(canvas, inspectorX);
+        }
 
         canvas.FillRect(ToolbarWidth, work.Bottom, work.Width, StatusHeight, 0xff0b1117);
         Point3 spatialPoint = ScreenToSpatial(pointer.X, pointer.Y);
@@ -2275,7 +2342,9 @@ internal sealed class EutherWireApplication : IForgeApplication
         else if (_document.Conduits.TryGetValue(selected, out Conduit? conduit))
         {
             canvas.DrawText(inspectorX + 18, 78, $"Conduit  {conduit.Label}", 0xffc7d4dc);
-            canvas.DrawText(inspectorX + 18, 100, $"Ø {conduit.InnerDiameterMillimetres:0} mm  {conduit.Route.LengthMillimetres / 1000:0.00} m", 0xff9eb0bb);
+            string nominal = conduit.NominalDiameterMillimetres is double size ? $"Nom {size:0}  " : string.Empty;
+            canvas.DrawText(inspectorX + 18, 100, $"{nominal}Inner {conduit.InnerDiameterMillimetres:0.##} mm", 0xff9eb0bb);
+            canvas.DrawText(inspectorX + 18, 122, $"Length {conduit.Route.LengthMillimetres / 1000:0.00} m", 0xff9eb0bb);
         }
         else if (_document.Annotations.TryGetValue(selected, out Annotation? annotation))
         {
@@ -2383,6 +2452,10 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
 
         DrawChromeButton(canvas, DeleteRect(inspectorX), "DELETE", true);
+        if (cable is not null)
+        {
+            DrawChromeButton(canvas, ElectricalInspectorRect(inspectorX), _electricalInspectorOpen ? "CABLE" : "DESIGN", true);
+        }
         if (device is not null)
         {
             canvas.DrawText(inspectorX + 18, 356, "EXACT POSITION (MM)", 0xff9eb0bb);
@@ -2395,6 +2468,11 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
         else if (cable is not null)
         {
+            if (_electricalInspectorOpen)
+            {
+                DrawElectricalControls(canvas, inspectorX, cable);
+                return;
+            }
             canvas.DrawText(inspectorX + 18, 356, $"TYPE  {cable.Kind}", 0xff9eb0bb);
             DrawChromeButton(canvas, PropertyMinusRect(inspectorX), "<", true);
             DrawChromeButton(canvas, PropertyPlusRect(inspectorX), ">", true);
@@ -2428,9 +2506,29 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
         else if (conduit is not null)
         {
-            canvas.DrawText(inspectorX + 18, 356, $"DIAMETER  {conduit.InnerDiameterMillimetres:0} mm", 0xff9eb0bb);
+            string nominal = conduit.NominalDiameterMillimetres is double size ? size.ToString("0") : "?";
+            canvas.DrawText(inspectorX + 18, 356, $"NOMINAL  {nominal} mm", 0xff9eb0bb);
             DrawChromeButton(canvas, PropertyMinusRect(inspectorX), "-", true);
             DrawChromeButton(canvas, PropertyPlusRect(inspectorX), "+", true);
+            canvas.DrawText(inspectorX + 134, 356, "INNER MM", 0xff9eb0bb);
+            UiTextBoxResult inner = _ui!.TextBox(
+                new UiId($"inspector.conduit.{selected}.inner"),
+                new RectI(inspectorX + 134, 374, 104, 30),
+                conduit.InnerDiameterMillimetres.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+                "required",
+                new UiTextBoxOptions(Numeric: true, MaxLength: 8));
+            if (inner.Submitted && TryParsePositive(inner.Text, out double innerDiameter))
+            {
+                _history.Execute(_document, new SetConduitDiameterCommand(conduit.Id, innerDiameter));
+                _dirty = true;
+                _statusMessage = $"Actual inner diameter: {innerDiameter:0.###} mm";
+                SyncSelectedLabelEditor();
+            }
+            else if (inner.Submitted)
+            {
+                _statusMessage = "Inner diameter must be greater than zero";
+                SyncSelectedLabelEditor();
+            }
         }
         else if (opening is not null)
         {
@@ -2469,6 +2567,142 @@ internal sealed class EutherWireApplication : IForgeApplication
         _dirty = true;
         _statusMessage = $"Set {opening.Label} {name} to {value:0.###} mm";
         SyncSelectedLabelEditor();
+    }
+
+    private void DrawElectricalControls(SoftwareCanvas canvas, int inspectorX, CableRoute cable)
+    {
+        ElectricalCableSpec electrical = cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind);
+        ElectricalProfile profile = MatchElectricalProfile(cable);
+        canvas.DrawText(inspectorX + 18, 356, $"PROFILE  {ElectricalProfileLabel(profile)}", 0xff9eb0bb);
+        DrawChromeButton(canvas, ElectricalProfileMinusRect(inspectorX), "<", true);
+        DrawChromeButton(canvas, ElectricalProfilePlusRect(inspectorX), ">", true);
+
+        canvas.DrawText(inspectorX + 18, 414, "IB A", 0xff9eb0bb);
+        canvas.DrawText(inspectorX + 94, 414, "IN A", 0xff9eb0bb);
+        canvas.DrawText(inspectorX + 170, 414, "REF IZ A", 0xff9eb0bb);
+        DrawElectricalNumber(canvas, cable, "ib", ElectricalFieldRect(inspectorX, 0, 432), electrical.Design?.DesignCurrentAmperes, true);
+        DrawElectricalNumber(canvas, cable, "in", ElectricalFieldRect(inspectorX, 1, 432), electrical.Design?.ProtectiveDeviceAmperes, true);
+        DrawElectricalNumber(canvas, cable, "iz_ref", ElectricalFieldRect(inspectorX, 2, 432), electrical.Design?.ReferenceCurrentCarryingCapacityAmperes, true);
+
+        canvas.DrawText(inspectorX + 18, 472, "AMBIENT", 0xff9eb0bb);
+        canvas.DrawText(inspectorX + 94, 472, "GROUP", 0xff9eb0bb);
+        canvas.DrawText(inspectorX + 170, 472, "INSUL", 0xff9eb0bb);
+        DrawElectricalNumber(canvas, cable, "ambient", ElectricalFieldRect(inspectorX, 0, 490), electrical.Design?.AmbientCorrectionFactor ?? 1, false);
+        DrawElectricalNumber(canvas, cable, "grouping", ElectricalFieldRect(inspectorX, 1, 490), electrical.Design?.GroupingCorrectionFactor ?? 1, false);
+        DrawElectricalNumber(canvas, cable, "insulation", ElectricalFieldRect(inspectorX, 2, 490), electrical.Design?.ThermalInsulationCorrectionFactor ?? 1, false);
+
+        string diameterLabel = electrical.Product is CableProductKind.Fk or CableProductKind.Rk ? "INSULATED WIRE OD MM" : "CABLE OD MM";
+        canvas.DrawText(inspectorX + 18, 530, diameterLabel, 0xff9eb0bb);
+        double? outsideDiameter = electrical.Product is CableProductKind.Fk or CableProductKind.Rk
+            ? electrical.Conductors.Select(item => item.OutsideDiameterMillimetres).Distinct().Count() == 1
+                ? electrical.Conductors[0].OutsideDiameterMillimetres
+                : null
+            : electrical.OutsideDiameterMillimetres;
+        DrawElectricalNumber(canvas, cable, "outside_diameter", new RectI(inspectorX + 170, 520, 68, 30), outsideDiameter, true);
+
+        canvas.DrawText(inspectorX + 18, 568, "REFERENCE SOURCE (ENTER)", 0xff9eb0bb);
+        UiTextBoxResult source = _ui!.TextBox(
+            new UiId($"inspector.electrical.{cable.Id}.source"),
+            new RectI(inspectorX + 18, 586, 220, 30),
+            electrical.Design?.ReferenceSource ?? string.Empty,
+            "required",
+            new UiTextBoxOptions(MaxLength: 48));
+        if (source.Submitted)
+        {
+            ApplyElectricalSource(cable, source.Text);
+        }
+
+        ProjectAnalysis analysis = ProjectAnalyzer.Analyze(_document);
+        ElectricalDesignCheck? check = analysis.ElectricalDesignChecks.FirstOrDefault(item => item.CableId == cable.Id);
+        DesignCheckStatus status = check?.Status ?? DesignCheckStatus.Unknown;
+        uint statusColor = status == DesignCheckStatus.Pass ? 0xff61e294 : 0xffffcc66;
+        canvas.DrawText(inspectorX + 18, 638, $"THERMAL  {status.ToString().ToUpperInvariant()}", statusColor);
+        if (check?.CorrectedCurrentCarryingCapacityAmperes is double iz)
+        {
+            canvas.DrawText(inspectorX + 18, 660, $"CORRECTED IZ  {iz:0.##} A", statusColor);
+        }
+        ConduitFill? fill = cable.ConduitId is ObjectId conduitId
+            ? analysis.ConduitFills.FirstOrDefault(item => item.ConduitId == conduitId)
+            : null;
+        string fillText = fill is null ? "PHYSICAL FILL  NO CONDUIT" : $"PHYSICAL FILL  {fill.FillRatio:P1}";
+        canvas.DrawText(inspectorX + 18, 682, fillText, fill is { UnknownCableCount: 0, UnknownConductorCount: 0 } ? 0xff61e294 : 0xffffcc66);
+        canvas.DrawText(inspectorX + 18, 712, _document.ElectricalRules.InstallationStandard, 0xff728996);
+        canvas.DrawText(inspectorX + 18, 732, _document.ElectricalRules.CableSizingGuide, 0xff728996);
+        canvas.DrawText(inspectorX + 18, 752, "PLANNING SUPPORT · VERIFY", 0xffffcc66);
+    }
+
+    private void DrawElectricalNumber(SoftwareCanvas canvas, CableRoute cable, string name, RectI rect, double? value, bool optional)
+    {
+        UiTextBoxResult text = _ui!.TextBox(
+            new UiId($"inspector.electrical.{cable.Id}.{name}"),
+            rect,
+            value?.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            optional ? "unknown" : "1.0",
+            new UiTextBoxOptions(Numeric: true, MaxLength: 8));
+        if (!text.Submitted) return;
+        if (optional && string.IsNullOrWhiteSpace(text.Text))
+        {
+            ApplyElectricalNumber(cable, name, null);
+            return;
+        }
+        if (!TryParsePositive(text.Text, out double parsed))
+        {
+            _statusMessage = $"{name} must be greater than zero";
+            SyncElectricalEditors(cable);
+            return;
+        }
+        ApplyElectricalNumber(cable, name, parsed);
+    }
+
+    private void ApplyElectricalNumber(CableRoute cable, string name, double? value)
+    {
+        ElectricalCableSpec electrical = cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind);
+        if (name == "outside_diameter")
+        {
+            IReadOnlyList<ConductorSpec> conductors = electrical.Product is CableProductKind.Fk or CableProductKind.Rk
+                ? electrical.Conductors.Select(item => new ConductorSpec(item.Id, item.Function, item.Colour,
+                    item.AreaSquareMillimetres, value, item.TerminalLabel)).ToList()
+                : electrical.Conductors;
+            electrical = new ElectricalCableSpec(electrical.Product, electrical.Preset, conductors, electrical.Shielding,
+                electrical.PoeCapable, electrical.Product is CableProductKind.Fk or CableProductKind.Rk ? null : value, electrical.Design);
+        }
+        else
+        {
+            CircuitDesign design = EnsureCircuitDesign(electrical);
+            electrical = WithDesign(electrical, new CircuitDesign(
+                design.NominalVoltageVolts,
+                design.PhaseCount,
+                design.ConductorMaterial,
+                design.LoadedConductorCount,
+                name == "ib" ? value : design.DesignCurrentAmperes,
+                name == "in" ? value : design.ProtectiveDeviceAmperes,
+                design.ProtectiveDeviceCharacteristic,
+                name == "iz_ref" ? value : design.ReferenceCurrentCarryingCapacityAmperes,
+                name == "ambient" ? value!.Value : design.AmbientCorrectionFactor,
+                name == "grouping" ? value!.Value : design.GroupingCorrectionFactor,
+                name == "insulation" ? value!.Value : design.ThermalInsulationCorrectionFactor,
+                design.ReferenceSource));
+        }
+        _history.Execute(_document, new SetCableElectricalCommand(cable.Id, cable.Kind, electrical));
+        _dirty = true;
+        _statusMessage = $"Electrical {name} updated";
+        SyncElectricalEditors(_document.RequireCable(cable.Id));
+    }
+
+    private void ApplyElectricalSource(CableRoute cable, string source)
+    {
+        ElectricalCableSpec electrical = cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind);
+        CircuitDesign design = EnsureCircuitDesign(electrical);
+        electrical = WithDesign(electrical, new CircuitDesign(design.NominalVoltageVolts, design.PhaseCount,
+            design.ConductorMaterial, design.LoadedConductorCount, design.DesignCurrentAmperes,
+            design.ProtectiveDeviceAmperes, design.ProtectiveDeviceCharacteristic,
+            design.ReferenceCurrentCarryingCapacityAmperes, design.AmbientCorrectionFactor,
+            design.GroupingCorrectionFactor, design.ThermalInsulationCorrectionFactor,
+            string.IsNullOrWhiteSpace(source) ? null : source.Trim()));
+        _history.Execute(_document, new SetCableElectricalCommand(cable.Id, cable.Kind, electrical));
+        _dirty = true;
+        _statusMessage = string.IsNullOrWhiteSpace(source) ? "Reference source cleared" : "Reference source updated";
+        SyncElectricalEditors(_document.RequireCable(cable.Id));
     }
 
     private void DrawDeviceCoordinate(SoftwareCanvas canvas, int inspectorX, ObjectId selected, Device device, int row, string axis)
@@ -2609,6 +2843,80 @@ internal sealed class EutherWireApplication : IForgeApplication
         double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) &&
         double.IsFinite(value) && value > 0;
 
+    private static ElectricalCableSpec WithDesign(ElectricalCableSpec electrical, CircuitDesign design) =>
+        new(electrical.Product, electrical.Preset, electrical.Conductors, electrical.Shielding,
+            electrical.PoeCapable, electrical.OutsideDiameterMillimetres, design);
+
+    private static CircuitDesign EnsureCircuitDesign(ElectricalCableSpec electrical)
+    {
+        if (electrical.Design is not null) return electrical.Design;
+        bool threePhase = electrical.Preset is CircuitPreset.ThreePhase or CircuitPreset.ThreePhaseNeutral;
+        return new CircuitDesign(threePhase ? 400 : 230, threePhase ? 3 : 1,
+            loadedConductorCount: threePhase ? 3 : 2,
+            protectiveDeviceCharacteristic: "B");
+    }
+
+    private static ElectricalProfile MatchElectricalProfile(CableRoute cable)
+    {
+        ElectricalCableSpec electrical = cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind);
+        double area = electrical.Conductors.FirstOrDefault()?.AreaSquareMillimetres ?? 0;
+        if (electrical.Product == CableProductKind.Cat6) return ElectricalProfile.Cat6;
+        if (electrical.Product == CableProductKind.Ekrk && electrical.Preset == CircuitPreset.ThreePhaseNeutral) return ElectricalProfile.Ekrk5G6;
+        if (electrical.Product == CableProductKind.Ekrk) return ElectricalProfile.Ekrk3G25;
+        if (electrical.Product == CableProductKind.Fk && electrical.Preset == CircuitPreset.Lighting) return ElectricalProfile.FkLighting5X15;
+        if (electrical.Product == CableProductKind.Fk && electrical.Preset == CircuitPreset.ThreePhaseNeutral) return ElectricalProfile.Fk5G25;
+        if (electrical.Product == CableProductKind.Fk && area >= 2) return ElectricalProfile.Fk3G25;
+        return ElectricalProfile.Fk3G15;
+    }
+
+    private static (CableKind Kind, ElectricalCableSpec Electrical) CreateElectricalProfile(ElectricalProfile profile, CircuitDesign? previous)
+    {
+        if (profile == ElectricalProfile.Cat6) return (CableKind.Cat6, ElectricalCableProfiles.Infer(CableKind.Cat6));
+        ElectricalCableSpec electrical = profile switch
+        {
+            ElectricalProfile.Ekrk3G25 => ElectricalCableProfiles.SinglePhase(CableProductKind.Ekrk, 2.5),
+            ElectricalProfile.Ekrk5G6 => ElectricalCableProfiles.ThreePhaseNeutral(CableProductKind.Ekrk, 6),
+            ElectricalProfile.Fk3G15 => ElectricalCableProfiles.SinglePhase(CableProductKind.Fk, 1.5),
+            ElectricalProfile.Fk3G25 => ElectricalCableProfiles.SinglePhase(CableProductKind.Fk, 2.5),
+            ElectricalProfile.Fk5G25 => ElectricalCableProfiles.ThreePhaseNeutral(CableProductKind.Fk, 2.5),
+            ElectricalProfile.FkLighting5X15 => ElectricalCableProfiles.Lighting(CableProductKind.Fk, 1.5, 2),
+            _ => throw new ArgumentOutOfRangeException(nameof(profile)),
+        };
+        bool threePhase = electrical.Preset is CircuitPreset.ThreePhase or CircuitPreset.ThreePhaseNeutral;
+        var design = new CircuitDesign(
+            threePhase ? 400 : 230,
+            threePhase ? 3 : 1,
+            previous?.ConductorMaterial ?? ConductorMaterial.Copper,
+            threePhase ? 3 : 2,
+            previous?.DesignCurrentAmperes,
+            previous?.ProtectiveDeviceAmperes,
+            previous?.ProtectiveDeviceCharacteristic ?? "B",
+            referenceCurrentCarryingCapacityAmperes: null,
+            previous?.AmbientCorrectionFactor ?? 1,
+            previous?.GroupingCorrectionFactor ?? 1,
+            previous?.ThermalInsulationCorrectionFactor ?? 1,
+            referenceSource: null);
+        CableKind kind = profile switch
+        {
+            ElectricalProfile.Ekrk3G25 => CableKind.Mains3G25,
+            ElectricalProfile.Ekrk5G6 => CableKind.Mains5G6,
+            _ => CableKind.Custom,
+        };
+        return (kind, WithDesign(electrical, design));
+    }
+
+    private static string ElectricalProfileLabel(ElectricalProfile profile) => profile switch
+    {
+        ElectricalProfile.Cat6 => "CAT6 DATA",
+        ElectricalProfile.Ekrk3G25 => "EKRK 3G2.5",
+        ElectricalProfile.Ekrk5G6 => "EKRK 5G6",
+        ElectricalProfile.Fk3G15 => "FK 3G1.5",
+        ElectricalProfile.Fk3G25 => "FK 3G2.5",
+        ElectricalProfile.Fk5G25 => "FK 5G2.5",
+        ElectricalProfile.FkLighting5X15 => "FK LIGHT 5X1.5",
+        _ => profile.ToString(),
+    };
+
     private static RectI ButtonRect(int inspectorX, int index) =>
         new(inspectorX + 18 + index * 78, 146, 68, 32);
 
@@ -2619,8 +2927,12 @@ internal sealed class EutherWireApplication : IForgeApplication
     private static RectI FinishRect(int inspectorX) => new(inspectorX + 18, 260, 104, 32);
     private static RectI CancelRect(int inspectorX) => new(inspectorX + 134, 260, 104, 32);
     private static RectI DeleteRect(int inspectorX) => new(inspectorX + 18, 316, 104, 30);
+    private static RectI ElectricalInspectorRect(int inspectorX) => new(inspectorX + 134, 316, 104, 30);
     private static RectI PropertyMinusRect(int inspectorX) => new(inspectorX + 18, 374, 48, 30);
     private static RectI PropertyPlusRect(int inspectorX) => new(inspectorX + 76, 374, 48, 30);
+    private static RectI ElectricalProfileMinusRect(int inspectorX) => new(inspectorX + 18, 374, 48, 30);
+    private static RectI ElectricalProfilePlusRect(int inspectorX) => new(inspectorX + 190, 374, 48, 30);
+    private static RectI ElectricalFieldRect(int inspectorX, int column, int y) => new(inspectorX + 18 + column * 76, y, 68, 30);
     private static RectI AddVertexRect(int inspectorX) => new(inspectorX + 18, 418, 104, 30);
     private static RectI DeleteVertexRect(int inspectorX) => new(inspectorX + 134, 418, 104, 30);
     private static RectI StatusMinusRect(int inspectorX) => new(inspectorX + 18, 476, 48, 30);
@@ -2658,6 +2970,17 @@ internal sealed class EutherWireApplication : IForgeApplication
     private static RectI CameraRect() => new(10, 586, 52, 32);
 
     private const int ToolCount = 8;
+
+    private enum ElectricalProfile
+    {
+        Cat6,
+        Ekrk3G25,
+        Ekrk5G6,
+        Fk3G15,
+        Fk3G25,
+        Fk5G25,
+        FkLighting5X15,
+    }
 
     private string NextViewLabel() => _viewMode switch
     {

@@ -89,6 +89,10 @@ public static class DocumentProperties
                 new PropertyHandleId(conduit.Id, "inner_diameter_mm"),
                 PropertyValueKind.Number,
                 conduit.InnerDiameterMillimetres.ToString("0.###", CultureInfo.InvariantCulture)));
+            properties.Add(new DocumentProperty(
+                new PropertyHandleId(conduit.Id, "nominal_diameter_mm"),
+                PropertyValueKind.Number,
+                conduit.NominalDiameterMillimetres?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown"));
             AddVertexElevations(properties, conduit.Id, conduit.Route);
         }
         foreach (Annotation annotation in document.Annotations.Values)
@@ -126,6 +130,9 @@ public static class DocumentProperties
             "inner_diameter_mm" => new SetConduitDiameterCommand(
                 id.ObjectId,
                 double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture)),
+            "nominal_diameter_mm" => new SetConduitNominalDiameterCommand(
+                id.ObjectId,
+                ParsePositive(value)),
             _ when TryParseVertexElevation(id.Name, out int vertexIndex) =>
                 new SetRouteVertexElevationCommand(id.ObjectId, vertexIndex, ParseNonNegative(value)),
             _ when id.ObjectId == ObjectId.Parse("space") => CreateSpaceCommand(document, id.Name, value),
