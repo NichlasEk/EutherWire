@@ -131,7 +131,7 @@ Useful non-interactive checks:
 ```
 
 The latest full check completed with zero build warnings and zero build errors.
-Document checks passed. Garage Draft reported schema 5, three devices, one
+Document checks passed. Garage Draft reported schema 6, three devices, one
 opening, one conduit, one cable, 22 semantic handles, and no analysis errors or
 warnings.
 
@@ -141,7 +141,8 @@ warnings.
   photorealistic room renderer.
 - WALL has visual opening cutouts; future filled 3D walls still need the same
   subtraction treatment.
-- Wall elevations do not yet have printable, repositionable dimension objects.
+- Wall elevations now have persistent, repositionable dimensions; dedicated
+  printable wall-elevation export remains future work.
 - Route vertices have one-axis Z handles; mobile-sized hit targets and gestures
   still need to be designed.
 - Snapping does not yet cover every corner, existing route, port, configured
@@ -161,11 +162,13 @@ The first wall-elevation editing mode now provides:
 3. doors, windows, penetrations, mounted devices, and wall-local routes;
 4. placement and drag editing in wall horizontal/elevation coordinates;
 5. nearest-corner and finished-floor offsets;
-6. command-based semantic-handle edits over the shared model.
+6. command-based semantic-handle edits over the shared model;
+7. two-click `DIM` objects with exact wall-local lengths and stable endpoint
+   handles, persisted by project schema 6.
 
-The next recommended slice is to add printable wall dimensions and bind common
-mounting heights to symbol/library metadata, then add route-vertex Z handles
-and collision/clearance diagnostics. Future filled 3D walls should reuse the
+The next recommended slice is to export printable wall elevations containing
+the new dimensions and bind common mounting heights to symbol/library metadata,
+then add collision/clearance diagnostics. Future filled 3D walls should reuse the
 WALL opening masks. The wall-local coordinate system is also the basis for
 phone calibration and AR overlays.
 

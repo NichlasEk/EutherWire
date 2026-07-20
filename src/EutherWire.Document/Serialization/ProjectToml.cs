@@ -51,6 +51,10 @@ public static class ProjectToml
                 .OrderBy(annotation => annotation.Id.Value, StringComparer.Ordinal)
                 .Select(ToFile)
                 .ToList(),
+            WallDimensions = document.WallDimensions.Values
+                .OrderBy(dimension => dimension.Id.Value, StringComparer.Ordinal)
+                .Select(ToFile)
+                .ToList(),
         };
         return TomlSerializer.Serialize(file).Replace("\r\n", "\n", StringComparison.Ordinal);
     }
@@ -77,9 +81,9 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion is < 1 or > 5)
+        if (file.Project.SchemaVersion is < 1 or > 6)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 5.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 6.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
@@ -161,6 +165,22 @@ public static class ProjectToml
                 Point(source.Position, $"annotations[{source.Id}].position"),
                 RequireText(source.Text, $"annotations[{source.Id}].text")));
         }
+        foreach (WallDimensionFile source in file.WallDimensions)
+        {
+            MountingSurface surface = ParseEnum<MountingSurface>(source.Surface, "wall dimension surface");
+            Point3 start = SpatialPoint(source.Start, $"wall_dimensions[{source.Id}].start");
+            Point3 end = SpatialPoint(source.End, $"wall_dimensions[{source.Id}].end");
+            if (!WallCoordinateSystem.IsOnWall(document.Space, surface, start) || !WallCoordinateSystem.IsOnWall(document.Space, surface, end))
+            {
+                throw new ProjectFormatException($"Wall dimension '{source.Id}' endpoints must lie on {surface}.");
+            }
+            document.Add(new WallDimension(
+                Id(source.Id, "wall dimension"),
+                surface,
+                start,
+                end,
+                source.Label ?? string.Empty));
+        }
         ValidateReferences(document);
         return document;
     }
@@ -236,6 +256,15 @@ public static class ProjectToml
         Id = annotation.Id.Value,
         Position = [annotation.Position.X, annotation.Position.Y],
         Text = annotation.Text,
+    };
+
+    private static WallDimensionFile ToFile(WallDimension dimension) => new()
+    {
+        Id = dimension.Id.Value,
+        Surface = Name(dimension.Surface),
+        Start = [dimension.Start.X, dimension.Start.Y, dimension.Start.Z],
+        End = [dimension.End.X, dimension.End.Y, dimension.End.Z],
+        Label = dimension.Label,
     };
 
     private static void ValidateReferences(ProjectDocument document)
@@ -401,6 +430,9 @@ public static class ProjectToml
 
         [JsonPropertyName("annotations")]
         public List<AnnotationFile> Annotations { get; set; } = [];
+
+        [JsonPropertyName("wall_dimensions")]
+        public List<WallDimensionFile> WallDimensions { get; set; } = [];
     }
 
     private sealed class SpaceFile
@@ -563,6 +595,24 @@ public static class ProjectToml
 
         [JsonPropertyName("text")]
         public string? Text { get; set; }
+    }
+
+    private sealed class WallDimensionFile
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("surface")]
+        public string? Surface { get; set; }
+
+        [JsonPropertyName("start")]
+        public double[] Start { get; set; } = [];
+
+        [JsonPropertyName("end")]
+        public double[] End { get; set; } = [];
+
+        [JsonPropertyName("label")]
+        public string? Label { get; set; }
     }
 }
 

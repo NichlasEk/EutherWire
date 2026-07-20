@@ -209,6 +209,21 @@ Require(wired.RequireCable(cableId).ActualLengthMillimetres == 2350, "Actual ins
 connectedHistory.Execute(wired, new SetSpaceVolumeCommand(wired.Space with { HeightMillimetres = 3000, WallThicknessMillimetres = 180, CeilingThicknessMillimetres = 300 }));
 Require(wired.RequireDevice(lightId).ElevationMillimetres == 3000, "Ceiling-mounted devices must follow an edited room height.");
 
+var dimensionId = ObjectId.Parse("garage-door-height");
+double southY = wired.Space.Origin.Y + wired.Space.DepthMillimetres;
+connectedHistory.Execute(wired, new AddWallDimensionCommand(new WallDimension(
+    dimensionId,
+    MountingSurface.SouthWallInterior,
+    new Point3(500, southY, 0),
+    new Point3(500, southY, 2200),
+    "PORTÖPPNING")));
+var dimensionEnd = EditHandleId.Parse("garage-door-height:resize:end");
+Require(DocumentHandleEditor.RequireSpatialPosition(wired, dimensionEnd).Z == 2200, "Wall dimensions need stable endpoint handles.");
+connectedHistory.Execute(wired, new MoveSpatialHandleCommand(dimensionEnd, new Point3(500, southY, 2300)));
+Require(wired.RequireWallDimension(dimensionId).End.Z == 2300, "Dimension endpoints must be spatially editable.");
+Require(connectedHistory.Undo(wired), "Dimension endpoint moves must be undoable.");
+Require(wired.RequireWallDimension(dimensionId).End.Z == 2200, "Undo must restore dimension endpoints.");
+
 string serialized = ProjectToml.Serialize(wired);
 ProjectDocument loaded = ProjectToml.Deserialize(serialized);
 string serializedAgain = ProjectToml.Serialize(loaded);
@@ -216,7 +231,8 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
-Require(loaded.SchemaVersion == 5 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.SchemaVersion == 6 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.RequireWallDimension(dimensionId).Label == "PORTÖPPNING", "TOML must preserve wall dimensions.");
 Require(loaded.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "TOML must preserve installation state.");
 Require(loaded.RequireCable(cableId).ActualLengthMillimetres == 2350, "TOML must preserve actual installed length.");
 Require(loaded.Space.WallThicknessMillimetres == 180 && loaded.Space.CeilingThicknessMillimetres == 300, "TOML must preserve wall and ceiling construction thickness.");

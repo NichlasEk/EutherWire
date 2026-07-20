@@ -58,6 +58,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     private ViewMode _viewMode;
     private MountingSurface _activeSurface = MountingSurface.FloorInterior;
     private double? _wallSnapHeightMillimetres;
+    private Point3? _dimensionStart;
 
     public EutherWireApplication(ProjectDocument document, string? projectDirectory, bool startIn3D = false, bool startInWall = false, string? startupCamera = null)
     {
@@ -216,6 +217,11 @@ internal sealed class EutherWireApplication : IForgeApplication
                     return;
                 }
                 PlaceAnnotation(ScreenToDocument(pointer.X, pointer.Y));
+                return;
+            }
+            if (_activeTool == ToolKind.Dimension)
+            {
+                PlaceWallDimensionPoint(ScreenToSpatial(pointer.X, pointer.Y));
                 return;
             }
             if (_activeTool is ToolKind.Wire or ToolKind.Conduit)
@@ -458,6 +464,39 @@ internal sealed class EutherWireApplication : IForgeApplication
         _activeTool = ToolKind.Select;
         _dirty = true;
         _statusMessage = $"Placed {opening.Label} on {_activeSurface}; switched to SEL";
+    }
+
+    private void PlaceWallDimensionPoint(Point3 position)
+    {
+        if (_viewMode != ViewMode.Wall || !IsWallSurface(_activeSurface))
+        {
+            _statusMessage = "DIM is available in WALL mode";
+            return;
+        }
+        Point3 snapped = MountingSurfaceGeometry.Constrain(_document.Space, _activeSurface, new Point3(
+            Math.Round(position.X / 100) * 100,
+            Math.Round(position.Y / 100) * 100,
+            Math.Round(position.Z / 100) * 100));
+        if (_dimensionStart is null)
+        {
+            _dimensionStart = snapped;
+            _statusMessage = "Dimension start set; click the second point";
+            return;
+        }
+        Point3 start = _dimensionStart.Value;
+        if (start == snapped)
+        {
+            _statusMessage = "Choose a different second point";
+            return;
+        }
+        ObjectId id = ObjectId.Parse($"dimension-{Guid.NewGuid():N}");
+        var dimension = new WallDimension(id, _activeSurface, start, snapped);
+        _history.Execute(_document, new AddWallDimensionCommand(dimension));
+        _selectedObjectId = id;
+        _dimensionStart = null;
+        _activeTool = ToolKind.Select;
+        _dirty = true;
+        _statusMessage = $"Created {id}; drag either endpoint to adjust";
     }
 
     private static bool IsWallSurface(MountingSurface surface) => surface is
@@ -930,11 +969,12 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private void CancelDraft(string message)
     {
-        if (_draftPoints.Count == 0)
+        if (_draftPoints.Count == 0 && _dimensionStart is null)
         {
             return;
         }
         ClearDraft();
+        _dimensionStart = null;
         _statusMessage = message;
     }
 
@@ -969,7 +1009,9 @@ internal sealed class EutherWireApplication : IForgeApplication
                         ? annotation.Text
                         : _document.Openings.TryGetValue(selected, out BuildingOpening? opening)
                             ? opening.Label
-                            : null;
+                            : _document.WallDimensions.TryGetValue(selected, out WallDimension? dimension)
+                                ? dimension.Label
+                                : null;
         if (label is not null)
         {
             _ui.SetText(new UiId($"inspector.label.{selected}"), label);
@@ -1179,6 +1221,10 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             return opening.Surface == _activeSurface;
         }
+        if (_document.WallDimensions.TryGetValue(handle.Id.ObjectId, out WallDimension? dimension))
+        {
+            return dimension.Surface == _activeSurface;
+        }
         if ((handle.Id.Kind is EditHandleKind.Vertex or EditHandleKind.Elevation) && handle.Id.Index is int index)
         {
             Point3 point = _document.Conduits.TryGetValue(handle.Id.ObjectId, out Conduit? conduit)
@@ -1202,6 +1248,10 @@ internal sealed class EutherWireApplication : IForgeApplication
             return handle.Id.Kind == EditHandleKind.Resize
                 ? BuildingOpeningGeometry.ResizeHandle(opening, handle.Id.Name ?? throw new InvalidOperationException("Resize handle has no name.")).Z
                 : opening.Centre.Z;
+        }
+        if (_document.WallDimensions.TryGetValue(handle.Id.ObjectId, out WallDimension? dimension))
+        {
+            return handle.Id.Name == "start" ? dimension.Start.Z : dimension.End.Z;
         }
         if ((handle.Id.Kind is EditHandleKind.Vertex or EditHandleKind.Elevation) && handle.Id.Index is int index)
         {
@@ -1240,6 +1290,11 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private ObjectId? HitObjectWall(int screenX, int screenY)
     {
+        foreach (WallDimension dimension in _document.WallDimensions.Values.Reverse())
+        {
+            if (dimension.Surface != _activeSurface) continue;
+            if (HitRouteWall(screenX, screenY, [dimension.Start, dimension.End], 10)) return dimension.Id;
+        }
         foreach (BuildingOpening opening in _document.Openings.Values.Reverse())
         {
             if (opening.Surface != _activeSurface) continue;
@@ -1355,6 +1410,14 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.FillRect((int)x - width / 2, (int)y - height / 2, width, height, 0xff20303b);
             canvas.DrawRect((int)x - width / 2, (int)y - height / 2, width, height, _selectedObjectId == device.Id ? 0xffffcc66 : color);
             canvas.DrawText((int)x - width / 2 + 5, (int)y - 4, device.Label, color);
+        }
+        foreach (WallDimension dimension in _document.WallDimensions.Values)
+        {
+            if (dimension.Surface == _activeSurface) DrawWallDimension(canvas, dimension, _selectedObjectId == dimension.Id);
+        }
+        if (_activeTool == ToolKind.Dimension && _dimensionStart is Point3 dimensionStart)
+        {
+            DrawWallDimension(canvas, new WallDimension(ObjectId.Parse("dimension-preview"), _activeSurface, dimensionStart, _draftPointer), false);
         }
 
         if (_draftPoints.Count > 0)
@@ -1569,6 +1632,30 @@ internal sealed class EutherWireApplication : IForgeApplication
             if (!_cameraWall.IsOnWall(points[index - 1]) || !_cameraWall.IsOnWall(points[index])) continue;
             DrawWallLine(canvas, points[index - 1], points[index], color, thickness);
         }
+    }
+
+    private void DrawWallDimension(SoftwareCanvas canvas, WallDimension dimension, bool selected)
+    {
+        uint color = selected ? 0xffffcc66 : 0xff61e294;
+        DrawWallLine(canvas, dimension.Start, dimension.End, color, selected ? 3 : 1);
+        (double startX, double startY) = _cameraWall.Project(dimension.Start);
+        (double endX, double endY) = _cameraWall.Project(dimension.End);
+        double dx = endX - startX;
+        double dy = endY - startY;
+        double lengthPixels = Math.Max(1, Math.Sqrt(dx * dx + dy * dy));
+        double nx = -dy / lengthPixels;
+        double ny = dx / lengthPixels;
+        for (int sign = -1; sign <= 1; sign += 2)
+        {
+            double x = sign < 0 ? startX : endX;
+            double y = sign < 0 ? startY : endY;
+            canvas.DrawLine((int)(x - nx * 7), (int)(y - ny * 7), (int)(x + nx * 7), (int)(y + ny * 7), color);
+        }
+        double horizontal = _cameraWall.HorizontalCoordinate(dimension.End) - _cameraWall.HorizontalCoordinate(dimension.Start);
+        double elevation = dimension.End.Z - dimension.Start.Z;
+        double millimetres = Math.Sqrt(horizontal * horizontal + elevation * elevation);
+        string text = string.IsNullOrWhiteSpace(dimension.Label) ? $"{millimetres:0} mm" : $"{dimension.Label} · {millimetres:0} mm";
+        canvas.DrawText((int)((startX + endX) / 2) - text.Length * 3, (int)((startY + endY) / 2) - 15, text, color);
     }
 
     private void DrawWallLine(SoftwareCanvas canvas, Point3 start, Point3 end, uint color, int thickness)
@@ -1885,7 +1972,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         if (_selectedObjectId is not ObjectId selected)
         {
             canvas.DrawText(inspectorX + 18, 60, "Selected: none", 0xff9eb0bb);
-            canvas.DrawText(inspectorX + 18, 86, $"Objects: {_document.Devices.Count + _document.Cables.Count + _document.Conduits.Count + _document.Annotations.Count + _document.Openings.Count}", 0xff9eb0bb);
+            canvas.DrawText(inspectorX + 18, 86, $"Objects: {_document.Devices.Count + _document.Cables.Count + _document.Conduits.Count + _document.Annotations.Count + _document.Openings.Count + _document.WallDimensions.Count}", 0xff9eb0bb);
             canvas.DrawText(inspectorX + 18, 112, $"Undo: {_history.UndoCount}   Redo: {_history.RedoCount}", 0xff9eb0bb);
             return;
         }
@@ -1918,6 +2005,14 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.DrawText(inspectorX + 18, 78, $"{opening.Kind}  {opening.Label}", 0xffc7d4dc);
             canvas.DrawText(inspectorX + 18, 100, $"{opening.WidthMillimetres:0} × {opening.HeightMillimetres:0} mm", 0xff9eb0bb);
             canvas.DrawText(inspectorX + 18, 122, opening.Surface.ToString(), 0xff9eb0bb);
+        }
+        else if (_document.WallDimensions.TryGetValue(selected, out WallDimension? dimension))
+        {
+            double horizontal = _cameraWall.HorizontalCoordinate(dimension.End) - _cameraWall.HorizontalCoordinate(dimension.Start);
+            double vertical = dimension.End.Z - dimension.Start.Z;
+            canvas.DrawText(inspectorX + 18, 78, $"Wall dimension  {Math.Sqrt(horizontal * horizontal + vertical * vertical):0} mm", 0xffc7d4dc);
+            canvas.DrawText(inspectorX + 18, 100, dimension.Surface.ToString(), 0xff9eb0bb);
+            canvas.DrawText(inspectorX + 18, 122, "Drag START / END handles", 0xff9eb0bb);
         }
     }
 
@@ -1979,6 +2074,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         _document.Conduits.TryGetValue(selected, out Conduit? conduit);
         _document.Annotations.TryGetValue(selected, out Annotation? annotation);
         _document.Openings.TryGetValue(selected, out BuildingOpening? opening);
+        _document.WallDimensions.TryGetValue(selected, out WallDimension? dimension);
         string label = device is not null
             ? device.Label
             : cable is not null
@@ -1989,7 +2085,7 @@ internal sealed class EutherWireApplication : IForgeApplication
                         ? annotation.Text
                         : opening is not null
                             ? opening.Label
-                            : string.Empty;
+                            : dimension?.Label ?? string.Empty;
         canvas.DrawText(inspectorX + 18, 258, "LABEL (ENTER TO APPLY)", 0xff9eb0bb);
         UiTextBoxResult text = _ui!.TextBox(
             new UiId($"inspector.label.{selected}"),
@@ -2263,11 +2359,11 @@ internal sealed class EutherWireApplication : IForgeApplication
         canvas.DrawText(rect.X + 14, rect.Y + 12, label, text);
     }
 
-    private static RectI ToolRect(int index) => new(10, 64 + index * 48, 52, 34);
+    private static RectI ToolRect(int index) => new(10, 64 + index * 44, 52, 34);
     private static RectI ViewRect(int index) => new(10, 428 + index * 44, 52, 32);
     private static RectI CameraRect() => new(10, 586, 52, 32);
 
-    private const int ToolCount = 7;
+    private const int ToolCount = 8;
 
     private string NextViewLabel() => _viewMode switch
     {
@@ -2285,6 +2381,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         ToolKind.Conduit => "PIPE",
         ToolKind.Text => "TEXT",
         ToolKind.Opening => "OPEN",
+        ToolKind.Dimension => "DIM",
         _ => "?",
     };
 
@@ -2395,6 +2492,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         Conduit,
         Text,
         Opening,
+        Dimension,
     }
 
     private enum ViewMode

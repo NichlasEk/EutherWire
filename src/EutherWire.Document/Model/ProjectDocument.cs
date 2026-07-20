@@ -7,6 +7,7 @@ public sealed class ProjectDocument
     private readonly Dictionary<ObjectId, Conduit> _conduits = [];
     private readonly Dictionary<ObjectId, Annotation> _annotations = [];
     private readonly Dictionary<ObjectId, BuildingOpening> _openings = [];
+    private readonly Dictionary<ObjectId, WallDimension> _wallDimensions = [];
 
     public ProjectDocument(string name)
     {
@@ -14,7 +15,7 @@ public sealed class ProjectDocument
         Name = name;
     }
 
-    public int SchemaVersion => 5;
+    public int SchemaVersion => 6;
     public string Name { get; set; }
     public PlanningSettings Planning { get; internal set; } = new();
     public SpaceVolume Space { get; internal set; } = SpaceVolume.GarageDefault;
@@ -23,6 +24,7 @@ public sealed class ProjectDocument
     public IReadOnlyDictionary<ObjectId, Conduit> Conduits => _conduits;
     public IReadOnlyDictionary<ObjectId, Annotation> Annotations => _annotations;
     public IReadOnlyDictionary<ObjectId, BuildingOpening> Openings => _openings;
+    public IReadOnlyDictionary<ObjectId, WallDimension> WallDimensions => _wallDimensions;
 
     public void Add(Device device)
     {
@@ -54,8 +56,14 @@ public sealed class ProjectDocument
         _openings.Add(opening.Id, opening);
     }
 
+    public void Add(WallDimension dimension)
+    {
+        RequireUniqueId(dimension.Id);
+        _wallDimensions.Add(dimension.Id, dimension);
+    }
+
     public bool Contains(ObjectId id) =>
-        _devices.ContainsKey(id) || _cables.ContainsKey(id) || _conduits.ContainsKey(id) || _annotations.ContainsKey(id) || _openings.ContainsKey(id);
+        _devices.ContainsKey(id) || _cables.ContainsKey(id) || _conduits.ContainsKey(id) || _annotations.ContainsKey(id) || _openings.ContainsKey(id) || _wallDimensions.ContainsKey(id);
 
     public Device RequireDevice(ObjectId id) =>
         _devices.TryGetValue(id, out Device? device)
@@ -82,6 +90,11 @@ public sealed class ProjectDocument
             ? opening
             : throw new KeyNotFoundException($"Building opening '{id}' does not exist.");
 
+    public WallDimension RequireWallDimension(ObjectId id) =>
+        _wallDimensions.TryGetValue(id, out WallDimension? dimension)
+            ? dimension
+            : throw new KeyNotFoundException($"Wall dimension '{id}' does not exist.");
+
     internal bool TryGetCable(ObjectId id, out CableRoute? cable) => _cables.TryGetValue(id, out cable);
     internal bool TryGetConduit(ObjectId id, out Conduit? conduit) => _conduits.TryGetValue(id, out conduit);
 
@@ -102,10 +115,11 @@ public sealed class ProjectDocument
     internal bool RemoveConduit(ObjectId id, out Conduit? conduit) => _conduits.Remove(id, out conduit);
     internal bool RemoveAnnotation(ObjectId id, out Annotation? annotation) => _annotations.Remove(id, out annotation);
     internal bool RemoveOpening(ObjectId id, out BuildingOpening? opening) => _openings.Remove(id, out opening);
+    internal bool RemoveWallDimension(ObjectId id, out WallDimension? dimension) => _wallDimensions.Remove(id, out dimension);
 
     private void RequireUniqueId(ObjectId id)
     {
-        if (_devices.ContainsKey(id) || _cables.ContainsKey(id) || _conduits.ContainsKey(id) || _annotations.ContainsKey(id))
+        if (Contains(id))
         {
             throw new InvalidOperationException($"Object ID '{id}' already exists in this document.");
         }

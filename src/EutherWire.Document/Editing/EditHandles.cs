@@ -92,6 +92,11 @@ public static class DocumentHandles
             handles.Add(new EditHandle(new EditHandleId(opening.Id, EditHandleKind.Resize, Name: "start"), start.Plan));
             handles.Add(new EditHandle(new EditHandleId(opening.Id, EditHandleKind.Resize, Name: "end"), end.Plan));
         }
+        foreach (WallDimension dimension in document.WallDimensions.Values.OrderBy(dimension => dimension.Id.Value, StringComparer.Ordinal))
+        {
+            handles.Add(new EditHandle(new EditHandleId(dimension.Id, EditHandleKind.Resize, Name: "start"), dimension.Start.Plan));
+            handles.Add(new EditHandle(new EditHandleId(dimension.Id, EditHandleKind.Resize, Name: "end"), dimension.End.Plan));
+        }
 
         foreach (CableRoute cable in document.Cables.Values.OrderBy(cable => cable.Id.Value, StringComparer.Ordinal))
         {
@@ -160,6 +165,15 @@ public static class DocumentHandleEditor
                 ? BuildingOpeningGeometry.ResizeHandle(opening, id.Name ?? throw new InvalidOperationException("Resize handle has no name."))
                 : opening.Centre;
         }
+        if (document.WallDimensions.TryGetValue(id.ObjectId, out WallDimension? dimension))
+        {
+            return id.Name switch
+            {
+                "start" => dimension.Start,
+                "end" => dimension.End,
+                _ => throw new InvalidOperationException("Dimension handle has no endpoint name."),
+            };
+        }
         if ((id.Kind is EditHandleKind.Vertex or EditHandleKind.Elevation) && id.Index >= 0)
         {
             Point3 vertex = document.Conduits.TryGetValue(id.ObjectId, out Conduit? conduit)
@@ -205,6 +219,12 @@ public static class DocumentHandleEditor
                 device.RotationDegrees = NormalizeDegrees(Math.Atan2(y, x) * 180 / Math.PI + 90);
                 return;
             case EditHandleKind.Resize:
+                if (document.WallDimensions.TryGetValue(id.ObjectId, out WallDimension? dimension))
+                {
+                    Point3 endpoint = id.Name == "start" ? dimension.Start : dimension.End;
+                    SetSpatialPosition(document, id, new Point3(position.X, position.Y, endpoint.Z));
+                    return;
+                }
                 BuildingOpening resizeOpening = document.RequireOpening(id.ObjectId);
                 Point3 current = BuildingOpeningGeometry.ResizeHandle(resizeOpening, id.Name ?? throw new InvalidOperationException("Resize handle has no name."));
                 BuildingOpeningGeometry.ResizeFromHandle(resizeOpening, id.Name!, new Point3(position.X, position.Y, current.Z));
@@ -246,6 +266,14 @@ public static class DocumentHandleEditor
         {
             position = MountingSurfaceGeometry.Constrain(document.Space, resizeOpening.Surface, position);
             BuildingOpeningGeometry.ResizeFromHandle(resizeOpening, id.Name ?? throw new InvalidOperationException("Resize handle has no name."), position);
+            return;
+        }
+        if (id.Kind == EditHandleKind.Resize && document.WallDimensions.TryGetValue(id.ObjectId, out WallDimension? dimension))
+        {
+            Point3 constrained = MountingSurfaceGeometry.Constrain(document.Space, dimension.Surface, position);
+            if (id.Name == "start") dimension.Start = constrained;
+            else if (id.Name == "end") dimension.End = constrained;
+            else throw new InvalidOperationException("Dimension handle has no endpoint name.");
             return;
         }
         Device? spatialDevice = id.Kind == EditHandleKind.Move && document.Devices.TryGetValue(id.ObjectId, out Device? candidate)

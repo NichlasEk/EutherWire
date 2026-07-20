@@ -64,6 +64,13 @@ that vertex's Z value while preserving X/Y; contained cable geometry follows
 and the move remains undoable. Elevation handles are hidden in PLAN to avoid
 overlapping the ordinary blue X/Y vertex handles.
 
+`DIM` creates persistent installation dimensions in `WALL`: click the first
+mounting point and then the second. The dimension snaps to 100 mm, displays its
+true wall-local length, and immediately returns to `SEL`. Select the green line
+to drag its stable `resize:start` and `resize:end` handles, rename it in the
+inspector, delete it, or undo/redo the edit. Dimensions retain their wall face,
+3D endpoints, optional label, and IDs in `project.toml` schema 6.
+
 Garage Draft now includes a first-class 5,000 × 2,200 mm garage-door opening
 on the south wall. Openings retain their wall, 3D centre, dimensions, stable
 handles, and IDs through TOML, SVG, and PNG export.
