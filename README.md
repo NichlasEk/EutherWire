@@ -72,7 +72,7 @@ mounting point and then the second. The dimension snaps to 100 mm, displays its
 true wall-local length, and immediately returns to `SEL`. Select the green line
 to drag its stable `resize:start` and `resize:end` handles, rename it in the
 inspector, delete it, or undo/redo the edit. Dimensions retain their wall face,
-3D endpoints, optional label, and IDs in `project.toml` schema 6.
+3D endpoints, optional label, and IDs in `project.toml` schema 7.
 
 Active tools explain their next step beside the pointer. DIM shows `1/2` and
 `2/2`; WIRE and PIPE show the next route point, and placement tools identify

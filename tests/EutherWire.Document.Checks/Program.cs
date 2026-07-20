@@ -276,12 +276,29 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
-Require(loaded.SchemaVersion == 6 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.SchemaVersion == 7 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.RequireCable(cableId).Electrical is { Product: CableProductKind.Cat6, Preset: CircuitPreset.Data, Conductors.Count: 4 },
+    "Schema 7 must migrate legacy CAT6 into explicit data pairs.");
 Require(loaded.RequireWallDimension(dimensionId).Label == "PORTÖPPNING", "TOML must preserve wall dimensions.");
 Require(loaded.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "TOML must preserve installation state.");
 Require(loaded.RequireCable(cableId).ActualLengthMillimetres == 2350, "TOML must preserve actual installed length.");
 Require(loaded.Space.WallThicknessMillimetres == 180 && loaded.Space.CeilingThicknessMillimetres == 300, "TOML must preserve wall and ceiling construction thickness.");
 Require(loaded.RequireDevice(lightId).ElevationMillimetres == 3000 && loaded.RequireDevice(lightId).MountingSurface == MountingSurface.CeilingInterior, "TOML must preserve a light mounted on the interior ceiling.");
+
+var electricalDocument = new ProjectDocument("Electrical conductors");
+var fkSpec = ElectricalCableProfiles.Lighting(CableProductKind.Fk, 1.5, 2);
+electricalDocument.Add(new CableRoute(ObjectId.Parse("lighting-fk"), "BELYSNING", CableKind.Custom,
+    new Polyline([new Point2(0, 0), new Point2(10000, 0)]), Electrical: fkSpec));
+ProjectDocument electricalLoaded = ProjectToml.Deserialize(ProjectToml.Serialize(electricalDocument));
+ElectricalCableSpec loadedFk = electricalLoaded.RequireCable(ObjectId.Parse("lighting-fk")).Electrical!;
+Require(loadedFk.Conductors.Count == 5 && loadedFk.Conductors.Count(item => item.Function == ConductorFunction.SwitchedLive) == 2,
+    "Schema 7 must preserve explicit FK conductor functions.");
+Require(loadedFk.Conductors.All(item => item.AreaSquareMillimetres == 1.5), "Schema 7 must preserve conductor area in square millimetres.");
+ProjectAnalysis electricalAnalysis = ProjectAnalyzer.Analyze(electricalLoaded);
+Require(electricalAnalysis.Materials.Count(item => item.Category == "conductor") == 5,
+    "Loose FK conductors must produce material rows grouped by function and colour.");
+Require(!electricalAnalysis.Diagnostics.Any(item => item.Code.StartsWith("electrical.", StringComparison.Ordinal)),
+    "A complete lighting preset must pass basic electrical diagnostics.");
 
 string dangling = serialized.Replace("target:in", "missing:in", StringComparison.Ordinal);
 try

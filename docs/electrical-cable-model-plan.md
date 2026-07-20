@@ -116,11 +116,11 @@ rules must be separate versioned rule packs rather than hard-coded assumptions.
 
 ## Delivery order
 
-1. Add conductor, cable-product, and circuit-preset data types with schema 7.
-2. Preserve old projects by migrating their current `CableKind` into a default
+1. **Implemented:** conductor, cable-product, and circuit-preset data types with schema 7.
+2. **Implemented:** preserve old projects by migrating their current `CableKind` into a default
    product while leaving unknown conductor data explicit.
 3. Add conductor editing and presets to the inspector.
-4. Extend conduit fill and material-list analysis.
+4. **Partly implemented:** material rows for loose RK/FK; next extend conduit
+   fill with insulated conductor diameters.
 5. Add terminal assignment and deterministic diagnostics.
 6. Expose the same conductor checklist in mobile installation mode.
-

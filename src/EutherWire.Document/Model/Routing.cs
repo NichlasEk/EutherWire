@@ -34,7 +34,8 @@ public sealed record CableRoute(
     PortReference? To = null,
     ObjectId? ConduitId = null,
     InstallationStatus InstallationStatus = InstallationStatus.Planned,
-    double? ActualLengthMillimetres = null);
+    double? ActualLengthMillimetres = null,
+    ElectricalCableSpec? Electrical = null);
 
 public enum InstallationMethod
 {

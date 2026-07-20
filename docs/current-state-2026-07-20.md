@@ -131,7 +131,7 @@ Useful non-interactive checks:
 ```
 
 The latest full check completed with zero build warnings and zero build errors.
-Document checks passed. Garage Draft reported schema 6, three devices, one
+Document checks passed. Garage Draft reported schema 7, three devices, one
 opening, one conduit, one cable, 22 semantic handles, and no analysis errors or
 warnings.
 
@@ -164,7 +164,21 @@ The first wall-elevation editing mode now provides:
 5. nearest-corner and finished-floor offsets;
 6. command-based semantic-handle edits over the shared model;
 7. two-click `DIM` objects with exact wall-local lengths and stable endpoint
-   handles, persisted by project schema 6.
+   handles, persisted by project schema 7.
+
+### Electrical cable data
+
+- Schema 7 stores cable product, circuit preset, shielding/PoE metadata, and
+  explicit conductors with stable ID, function, colour, area in mm², optional
+  insulated outside diameter, and terminal/control label.
+- Legacy CAT6, CAT6A, 3G2.5, 5G6, fibre, coax, and low-voltage cable kinds
+  migrate automatically into explicit profiles when loaded.
+- Built-in profiles cover data pairs, single phase, three phase with neutral,
+  and lighting with one or more labelled switched lives.
+- Basic diagnostics check required L1/L2/L3/N/PE conductors, neutral and PE
+  colours, and missing switched-live labels.
+- Loose RK/FK conductors produce material rows grouped by product, area,
+  colour, and function.
 8. pointer-local hints for multi-click tools and handle dragging, with `Esc`
    cancellation that restores pre-drag geometry;
 9. larger handle markers and 28 × 28 pixel hit targets (20 × 20 for ports) in

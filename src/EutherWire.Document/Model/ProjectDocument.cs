@@ -15,7 +15,7 @@ public sealed class ProjectDocument
         Name = name;
     }
 
-    public int SchemaVersion => 6;
+    public int SchemaVersion => 7;
     public string Name { get; set; }
     public PlanningSettings Planning { get; internal set; } = new();
     public SpaceVolume Space { get; internal set; } = SpaceVolume.GarageDefault;

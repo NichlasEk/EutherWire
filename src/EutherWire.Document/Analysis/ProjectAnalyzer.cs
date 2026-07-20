@@ -147,6 +147,7 @@ public static class ProjectAnalyzer
 
     private static void CheckCable(ProjectDocument document, CableRoute cable, List<ProjectDiagnostic> diagnostics)
     {
+        CheckElectrical(cable, diagnostics);
         Port? from = ResolvePort(document, cable, cable.From, "start", diagnostics);
         Port? to = ResolvePort(document, cable, cable.To, "end", diagnostics);
 
@@ -203,6 +204,40 @@ public static class ProjectAnalyzer
                 DiagnosticSeverity.Error,
                 cable.Id,
                 $"Cable '{cable.Label}' geometry differs from conduit '{conduit.Label}'."));
+        }
+    }
+
+    private static void CheckElectrical(CableRoute cable, List<ProjectDiagnostic> diagnostics)
+    {
+        ElectricalCableSpec electrical = cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind);
+        bool Has(ConductorFunction function) => electrical.Conductors.Any(item => item.Function == function);
+        void Require(ConductorFunction function, string code)
+        {
+            if (!Has(function)) diagnostics.Add(new ProjectDiagnostic(code, DiagnosticSeverity.Error, cable.Id,
+                $"Cable '{cable.Label}' uses {electrical.Preset} but has no {function} conductor."));
+        }
+        if (electrical.Preset is CircuitPreset.SinglePhase or CircuitPreset.Lighting)
+        {
+            Require(ConductorFunction.Line1, "electrical.line.missing");
+            Require(ConductorFunction.Neutral, "electrical.neutral.missing");
+            Require(ConductorFunction.ProtectiveEarth, "electrical.pe.missing");
+        }
+        if (electrical.Preset is CircuitPreset.ThreePhase or CircuitPreset.ThreePhaseNeutral)
+        {
+            Require(ConductorFunction.Line1, "electrical.l1.missing");
+            Require(ConductorFunction.Line2, "electrical.l2.missing");
+            Require(ConductorFunction.Line3, "electrical.l3.missing");
+            Require(ConductorFunction.ProtectiveEarth, "electrical.pe.missing");
+            if (electrical.Preset == CircuitPreset.ThreePhaseNeutral) Require(ConductorFunction.Neutral, "electrical.neutral.missing");
+        }
+        foreach (ConductorSpec conductor in electrical.Conductors)
+        {
+            if (conductor.Function == ConductorFunction.Neutral && !string.Equals(conductor.Colour, "blue", StringComparison.OrdinalIgnoreCase))
+                diagnostics.Add(new ProjectDiagnostic("electrical.neutral.colour", DiagnosticSeverity.Warning, cable.Id, $"Neutral conductor '{conductor.Id}' in '{cable.Label}' is not blue."));
+            if (conductor.Function == ConductorFunction.ProtectiveEarth && !string.Equals(conductor.Colour, "green_yellow", StringComparison.OrdinalIgnoreCase))
+                diagnostics.Add(new ProjectDiagnostic("electrical.pe.colour", DiagnosticSeverity.Error, cable.Id, $"Protective-earth conductor '{conductor.Id}' in '{cable.Label}' is not green/yellow."));
+            if (conductor.Function == ConductorFunction.SwitchedLive && string.IsNullOrWhiteSpace(conductor.TerminalLabel))
+                diagnostics.Add(new ProjectDiagnostic("electrical.switched_live.label", DiagnosticSeverity.Warning, cable.Id, $"Switched live '{conductor.Id}' in '{cable.Label}' needs a control label."));
         }
     }
 
@@ -311,6 +346,18 @@ public static class ProjectAnalyzer
                 $"{group.Key:0.###}",
                 $"Conduit {group.Key:0.###} mm",
                 group.Sum(conduit => conduit.Route.LengthMillimetres) / 1000,
+                "m")));
+        materials.AddRange(document.Cables.Values
+            .Select(cable => (Cable: cable, Electrical: cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)))
+            .Where(item => item.Electrical.Product is CableProductKind.Rk or CableProductKind.Fk)
+            .SelectMany(item => item.Electrical.Conductors.Select(conductor => (item.Cable, item.Electrical.Product, Conductor: conductor)))
+            .GroupBy(item => (item.Product, item.Conductor.AreaSquareMillimetres, item.Conductor.Colour, item.Conductor.Function))
+            .OrderBy(group => group.Key.Product).ThenBy(group => group.Key.AreaSquareMillimetres).ThenBy(group => group.Key.Colour)
+            .Select(group => new MaterialItem(
+                "conductor",
+                $"{group.Key.Product}-{group.Key.AreaSquareMillimetres:0.###}-{group.Key.Colour}-{group.Key.Function}",
+                $"{group.Key.Product} {group.Key.AreaSquareMillimetres:0.###} mm² {group.Key.Colour} · {group.Key.Function}",
+                group.Sum(item => RecommendedLength(document, item.Cable)) / 1000,
                 "m")));
         return materials;
     }

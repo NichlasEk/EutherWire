@@ -81,9 +81,9 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion is < 1 or > 6)
+        if (file.Project.SchemaVersion is < 1 or > 7)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 6.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 7.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
@@ -156,7 +156,8 @@ public static class ProjectToml
                 PortReference(source.To),
                 string.IsNullOrWhiteSpace(source.Conduit) ? null : Id(source.Conduit, "conduit reference"),
                 ParseEnum<InstallationStatus>(source.InstallationStatus, "installation status"),
-                OptionalNonNegative(source.ActualLengthMillimetres, $"cables[{source.Id}].actual_length_mm")));
+                OptionalNonNegative(source.ActualLengthMillimetres, $"cables[{source.Id}].actual_length_mm"),
+                Electrical(source)));
         }
         foreach (AnnotationFile source in file.Annotations)
         {
@@ -249,7 +250,38 @@ public static class ProjectToml
         Conduit = cable.ConduitId?.Value,
         InstallationStatus = Name(cable.InstallationStatus),
         ActualLengthMillimetres = cable.ActualLengthMillimetres,
+        Product = Name((cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).Product),
+        Circuit = Name((cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).Preset),
+        Shielding = (cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).Shielding,
+        PoeCapable = (cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).PoeCapable,
+        Conductors = (cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind)).Conductors.Select(item => new ConductorFile
+        {
+            Id = item.Id,
+            Function = Name(item.Function),
+            Colour = item.Colour,
+            AreaSquareMillimetres = item.AreaSquareMillimetres,
+            OutsideDiameterMillimetres = item.OutsideDiameterMillimetres,
+            TerminalLabel = item.TerminalLabel,
+        }).ToList(),
     };
+
+    private static ElectricalCableSpec Electrical(CableFile source)
+    {
+        CableKind legacyKind = ParseEnum<CableKind>(source.Kind, "cable kind");
+        if (string.IsNullOrWhiteSpace(source.Product) || source.Conductors.Count == 0) return ElectricalCableProfiles.Infer(legacyKind);
+        return new ElectricalCableSpec(
+            ParseEnum<CableProductKind>(source.Product, "cable product"),
+            ParseEnum<CircuitPreset>(source.Circuit, "circuit preset"),
+            source.Conductors.Select(item => new ConductorSpec(
+                RequireText(item.Id, "conductor id"),
+                ParseEnum<ConductorFunction>(item.Function, "conductor function"),
+                RequireText(item.Colour, "conductor colour"),
+                Positive(item.AreaSquareMillimetres, "conductor area_mm2"),
+                item.OutsideDiameterMillimetres is double diameter ? Positive(diameter, "conductor outside_diameter_mm") : null,
+                item.TerminalLabel)),
+            string.IsNullOrWhiteSpace(source.Shielding) ? "none" : source.Shielding,
+            source.PoeCapable);
+    }
 
     private static AnnotationFile ToFile(Annotation annotation) => new()
     {
@@ -583,6 +615,37 @@ public static class ProjectToml
 
         [JsonPropertyName("actual_length_mm")]
         public double? ActualLengthMillimetres { get; set; }
+
+        [JsonPropertyName("product")]
+        public string? Product { get; set; }
+
+        [JsonPropertyName("circuit")]
+        public string? Circuit { get; set; }
+
+        [JsonPropertyName("shielding")]
+        public string? Shielding { get; set; }
+
+        [JsonPropertyName("poe_capable")]
+        public bool PoeCapable { get; set; }
+
+        [JsonPropertyName("conductors")]
+        public List<ConductorFile> Conductors { get; set; } = [];
+    }
+
+    private sealed class ConductorFile
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+        [JsonPropertyName("function")]
+        public string? Function { get; set; }
+        [JsonPropertyName("colour")]
+        public string? Colour { get; set; }
+        [JsonPropertyName("area_mm2")]
+        public double AreaSquareMillimetres { get; set; }
+        [JsonPropertyName("outside_diameter_mm")]
+        public double? OutsideDiameterMillimetres { get; set; }
+        [JsonPropertyName("terminal_label")]
+        public string? TerminalLabel { get; set; }
     }
 
     private sealed class AnnotationFile

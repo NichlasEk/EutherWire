@@ -19,7 +19,7 @@ The intended workflow is:
 
 ## Implemented foundation
 
-- Project schema 6 stores a `SpaceVolume` with origin, width, depth, height,
+- Project schema 7 stores a `SpaceVolume` with origin, width, depth, height,
   wall thickness, and ceiling thickness.
 - Room dimensions are editable in the 3D inspector and through stable property
   handles; edits use the shared undo/redo command history.
@@ -114,7 +114,7 @@ All of these remain command-based and addressable without screen coordinates.
 
 The first wall-elevation slice is implemented. Persistent dimension annotations
 can now be created with two clicks, repositioned through stable endpoint
-handles, and saved in schema 6. The next refinement is printable wall-elevation
+handles, and saved in schema 7. The next refinement is printable wall-elevation
 export and snap profiles tied to symbol/library metadata. Indexed route Z
 handles and the first manual common-height profile row are available in WALL.
 Tool-local pointer hints expose multi-click progress and `Esc` cancellation,
