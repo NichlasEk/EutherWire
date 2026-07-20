@@ -171,6 +171,11 @@ The first wall-elevation editing mode now provides:
    PLAN, 3D, and WALL.
 10. keyboard `Delete` for the selected object, routed through the existing
     dependency-safe, undoable delete command and suppressed during text input.
+11. additive `Ctrl`-click selection across PLAN, 3D, and WALL, with yellow
+    feedback and a primary object retained for handles and the inspector;
+12. atomic group deletion plus `Ctrl+D` duplication with stable new IDs,
+    unique labels, spatial offset, and remapped internal cable/device/conduit
+    references.
 
 The next recommended slice is to export printable wall elevations containing
 the new dimensions and bind common mounting heights to symbol/library metadata,

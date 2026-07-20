@@ -572,6 +572,157 @@ public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
     }
 }
 
+public sealed class DeleteObjectsCommand(IEnumerable<ObjectId> objectIds) : IDocumentCommand
+{
+    private readonly ObjectId[] _ids = objectIds.Distinct().ToArray();
+    private DeleteObjectCommand[]? _commands;
+
+    public string Description => $"Delete {_ids.Length} objects";
+
+    public void Apply(ProjectDocument document)
+    {
+        if (_ids.Length == 0) throw new ArgumentException("At least one object must be deleted.");
+        _commands ??= _ids
+            .OrderBy(id => DeletePriority(document, id))
+            .ThenBy(id => id.Value, StringComparer.Ordinal)
+            .Select(id => new DeleteObjectCommand(id))
+            .ToArray();
+        int applied = 0;
+        try
+        {
+            for (; applied < _commands.Length; applied++) _commands[applied].Apply(document);
+        }
+        catch
+        {
+            for (int index = applied - 1; index >= 0; index--) _commands[index].Undo(document);
+            throw;
+        }
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        if (_commands is null) throw new InvalidOperationException("Command has not been applied.");
+        for (int index = _commands.Length - 1; index >= 0; index--) _commands[index].Undo(document);
+    }
+
+    private static int DeletePriority(ProjectDocument document, ObjectId id) =>
+        document.Cables.ContainsKey(id) ? 0 :
+        document.Devices.ContainsKey(id) ? 2 :
+        document.Conduits.ContainsKey(id) ? 3 : 1;
+}
+
+public sealed class DuplicateObjectsCommand(IEnumerable<ObjectId> objectIds, Vector2 offset) : IDocumentCommand
+{
+    private readonly ObjectId[] _sourceIds = objectIds.Distinct().ToArray();
+    private object[]? _copies;
+    private DeleteObjectsCommand? _deleteCopies;
+
+    public string Description => $"Duplicate {_sourceIds.Length} objects";
+    public IReadOnlyList<ObjectId> CreatedIds => _copies?.Select(ObjectIdOf).ToArray() ?? [];
+
+    public void Apply(ProjectDocument document)
+    {
+        if (_sourceIds.Length == 0) throw new ArgumentException("At least one object must be duplicated.");
+        _copies ??= CreateCopies(document);
+        foreach (object copy in _copies) Add(document, copy);
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        if (_copies is null) throw new InvalidOperationException("Command has not been applied.");
+        _deleteCopies ??= new DeleteObjectsCommand(_copies.Select(ObjectIdOf));
+        _deleteCopies.Apply(document);
+    }
+
+    private object[] CreateCopies(ProjectDocument document)
+    {
+        var ids = _sourceIds.ToDictionary(id => id, _ => ObjectId.Parse($"copy-{Guid.NewGuid():N}"));
+        var labels = document.Devices.Values.Select(item => item.Label)
+            .Concat(document.Cables.Values.Select(item => item.Label))
+            .Concat(document.Conduits.Values.Select(item => item.Label))
+            .Concat(document.Openings.Values.Select(item => item.Label))
+            .Concat(document.Annotations.Values.Select(item => item.Text))
+            .Concat(document.WallDimensions.Values.Select(item => item.Label))
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        string CopyLabel(string source)
+        {
+            string stem = $"{source} COPY";
+            string candidate = stem;
+            for (int number = 2; !labels.Add(candidate); number++) candidate = $"{stem} {number}";
+            return candidate;
+        }
+        Point3 Move(Point3 point) => new(point.X + offset.X, point.Y + offset.Y, point.Z);
+        var copies = new List<object>();
+        foreach (ObjectId sourceId in _sourceIds.OrderBy(id => CopyPriority(document, id)))
+        {
+            ObjectId id = ids[sourceId];
+            if (document.Devices.TryGetValue(sourceId, out Device? device))
+            {
+                Point3 moved = MountingSurfaceGeometry.Constrain(document.Space, device.MountingSurface,
+                    Move(new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres)));
+                copies.Add(new Device(id, device.Kind, moved.Plan, CopyLabel(device.Label), device.Ports, moved.Z, device.MountingSurface)
+                {
+                    RotationDegrees = device.RotationDegrees,
+                });
+            }
+            else if (document.Conduits.TryGetValue(sourceId, out Conduit? conduit))
+                copies.Add(conduit with { Id = id, Label = CopyLabel(conduit.Label), Route = new Polyline(conduit.Route.SpatialPoints.Select(Move)) });
+            else if (document.Cables.TryGetValue(sourceId, out CableRoute? cable))
+                copies.Add(cable with
+                {
+                    Id = id,
+                    Label = CopyLabel(cable.Label),
+                    Route = new Polyline(cable.Route.SpatialPoints.Select(Move)),
+                    From = Remap(cable.From, ids),
+                    To = Remap(cable.To, ids),
+                    ConduitId = cable.ConduitId is ObjectId conduitId && ids.TryGetValue(conduitId, out ObjectId copiedConduit) ? copiedConduit : cable.ConduitId,
+                    InstallationStatus = InstallationStatus.Planned,
+                    ActualLengthMillimetres = null,
+                });
+            else if (document.Openings.TryGetValue(sourceId, out BuildingOpening? opening))
+                copies.Add(new BuildingOpening(id, opening.Kind, opening.Surface,
+                    BuildingOpeningGeometry.ConstrainCentre(document.Space, opening.Surface, Move(opening.Centre), opening.WidthMillimetres, opening.HeightMillimetres),
+                    opening.WidthMillimetres, opening.HeightMillimetres, CopyLabel(opening.Label)));
+            else if (document.Annotations.TryGetValue(sourceId, out Annotation? annotation))
+                copies.Add(new Annotation(id, annotation.Position + offset, CopyLabel(annotation.Text)));
+            else if (document.WallDimensions.TryGetValue(sourceId, out WallDimension? dimension))
+                copies.Add(new WallDimension(id, dimension.Surface,
+                    MountingSurfaceGeometry.Constrain(document.Space, dimension.Surface, Move(dimension.Start)),
+                    MountingSurfaceGeometry.Constrain(document.Space, dimension.Surface, Move(dimension.End)),
+                    string.IsNullOrWhiteSpace(dimension.Label) ? string.Empty : CopyLabel(dimension.Label)));
+            else throw new KeyNotFoundException($"Object '{sourceId}' does not exist.");
+        }
+        return copies.ToArray();
+    }
+
+    private static PortReference? Remap(PortReference? reference, IReadOnlyDictionary<ObjectId, ObjectId> ids) =>
+        reference is PortReference port && ids.TryGetValue(port.DeviceId, out ObjectId deviceId)
+            ? port with { DeviceId = deviceId }
+            : reference;
+
+    private static int CopyPriority(ProjectDocument document, ObjectId id) => document.Cables.ContainsKey(id) ? 1 : 0;
+    private static ObjectId ObjectIdOf(object value) => value switch
+    {
+        Device item => item.Id, CableRoute item => item.Id, Conduit item => item.Id,
+        BuildingOpening item => item.Id, Annotation item => item.Id, WallDimension item => item.Id,
+        _ => throw new InvalidOperationException("Unsupported document object."),
+    };
+    private static void Add(ProjectDocument document, object value)
+    {
+        switch (value)
+        {
+            case Device item: document.Add(item); break;
+            case CableRoute item: document.Add(item); break;
+            case Conduit item: document.Add(item); break;
+            case BuildingOpening item: document.Add(item); break;
+            case Annotation item: document.Add(item); break;
+            case WallDimension item: document.Add(item); break;
+            default: throw new InvalidOperationException("Unsupported document object.");
+        }
+    }
+}
+
 public sealed class InsertRouteVertexCommand(ObjectId routeId, int index, Point2 position) : IDocumentCommand
 {
     public string Description => $"Insert {routeId}:vertex:{index}";

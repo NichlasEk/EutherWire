@@ -146,6 +146,45 @@ Require(!wired.Contains(placed.Id), "Undo must remove the placed device.");
 Require(connectedHistory.Redo(wired), "Placed devices must be redoable.");
 Require(wired.Contains(placed.Id), "Redo must restore the same stable object ID.");
 
+var grouped = new ProjectDocument("Grouped deletion");
+grouped.Add(new Device(sourceId, DeviceKind.PoeSwitch, new Point2(0, 0), "SOURCE", [new Port("out", PortKind.EthernetPoe, new Point2(0, 0))]));
+grouped.Add(new Device(targetId, DeviceKind.Camera, new Point2(2000, 0), "TARGET", [new Port("in", PortKind.EthernetPoe, new Point2(0, 0))]));
+grouped.Add(new Conduit(pipeId, "PIPE", 25, connectedRoute));
+grouped.Add(new CableRoute(cableId, "CABLE", CableKind.Cat6, connectedRoute,
+    new PortReference(sourceId, "out"), new PortReference(targetId, "in"), pipeId));
+var groupedHistory = new CommandHistory();
+groupedHistory.Execute(grouped, new DeleteObjectsCommand([sourceId, targetId, pipeId, cableId]));
+Require(!grouped.Contains(sourceId) && !grouped.Contains(targetId) && !grouped.Contains(pipeId) && !grouped.Contains(cableId),
+    "Grouped deletion must remove connected selections in dependency order.");
+Require(groupedHistory.Undo(grouped), "Grouped deletion must be one undo operation.");
+Require(grouped.Contains(sourceId) && grouped.Contains(targetId) && grouped.Contains(pipeId) && grouped.Contains(cableId),
+    "Undo must restore every grouped object and its references.");
+try
+{
+    groupedHistory.Execute(grouped, new DeleteObjectsCommand([targetId, pipeId]));
+    throw new InvalidOperationException("Grouped deletion must reject dependencies outside the selection.");
+}
+catch (InvalidOperationException exception)
+{
+    Require(exception.Message.Contains("connected", StringComparison.Ordinal) || exception.Message.Contains("contains", StringComparison.Ordinal),
+        "Rejected grouped deletion needs a useful dependency message.");
+}
+Require(grouped.Contains(targetId) && grouped.Contains(pipeId) && grouped.Contains(cableId),
+    "A rejected grouped deletion must roll back already removed objects.");
+var duplicate = new DuplicateObjectsCommand([sourceId, targetId, pipeId, cableId], new Vector2(300, 300));
+groupedHistory.Execute(grouped, duplicate);
+Require(duplicate.CreatedIds.Count == 4 && duplicate.CreatedIds.All(grouped.Contains),
+    "Grouped duplication must create a stable ID for every selected object.");
+CableRoute copiedCable = grouped.Cables.Values.Single(cable => cable.Id != cableId);
+Require(copiedCable.From?.DeviceId != sourceId && copiedCable.To?.DeviceId != targetId && copiedCable.ConduitId != pipeId,
+    "Grouped duplication must remap internal device and conduit references.");
+Require(copiedCable.Route.SpatialPoints[0] == new Point3(300, 300, 0),
+    "Duplicated route geometry must use the requested spatial offset.");
+Require(groupedHistory.Undo(grouped) && duplicate.CreatedIds.All(id => !grouped.Contains(id)),
+    "Grouped duplication must be one undo operation.");
+Require(groupedHistory.Redo(grouped) && duplicate.CreatedIds.All(grouped.Contains),
+    "Redo must restore duplicated objects with the same stable IDs.");
+
 var additions = new ProjectDocument("Route commands");
 var addedConduit = new Conduit(ObjectId.Parse("added-pipe"), "RÖR-01", 25, new Polyline([new Point2(0, 0), new Point2(1000, 0)]));
 var addedCable = new CableRoute(ObjectId.Parse("added-cable"), "CAT6-01", CableKind.Cat6, new Polyline([new Point2(0, 0), new Point2(1000, 0)]));

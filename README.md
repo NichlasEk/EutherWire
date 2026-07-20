@@ -85,6 +85,14 @@ With `SEL` active, select an object and press the keyboard `Delete` key to use
 the same undoable deletion as the inspector's `DELETE` button. Delete is ignored
 while an inspector text field is focused or another drawing operation is active.
 
+Hold `Ctrl` while clicking to add or remove objects from a multi-selection.
+Every selected object is outlined in yellow while the inspector identifies the
+primary object. `Delete` removes the complete selection as one dependency-safe
+undo operation. `Ctrl+D` duplicates it with new stable IDs and unique `COPY`
+labels; references between selected devices, cables, and conduits are remapped
+to their copies. WALL copies move 300 mm along the active wall, while PLAN/3D
+copies move 300 mm in X and Y.
+
 Garage Draft now includes a first-class 5,000 × 2,200 mm garage-door opening
 on the south wall. Openings retain their wall, 3D centre, dimensions, stable
 handles, and IDs through TOML, SVG, and PNG export.

@@ -83,6 +83,11 @@ The current renderer is deliberately a clear technical installation view, not
 a photorealistic game renderer. It uses WaylandForge's deterministic software
 canvas and remains useful on systems without a GPU API configured.
 
+Multi-selection now supports additive `Ctrl`-click, atomic dependency-safe
+Delete, and `Ctrl+D`. Duplicated connected objects receive stable IDs and keep
+their copied cable/device/conduit references. Box selection and group dragging
+remain the next interaction refinements.
+
 ## Next 3D slices
 
 ### Electrical cable contents

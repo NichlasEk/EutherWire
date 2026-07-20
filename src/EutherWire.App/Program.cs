@@ -44,6 +44,8 @@ internal sealed class EutherWireApplication : IForgeApplication
     private uint _handledScrollSerial;
     private EditHandleId? _activeHandle;
     private ObjectId? _selectedObjectId;
+    private readonly HashSet<ObjectId> _selectedObjectIds = [];
+    private bool _controlPressed;
     private ToolKind _activeTool = ToolKind.Select;
     private Point2 _dragOrigin;
     private Point3 _dragOriginSpatial;
@@ -120,9 +122,17 @@ internal sealed class EutherWireApplication : IForgeApplication
     public void Key(in ForgeKeyEvent input)
     {
         const uint keyEscape = 1;
+        const uint keyLeftControl = 29;
+        const uint keyRightControl = 97;
         const uint keyF9 = 67;
         const uint keyF10 = 68;
         const uint keyDelete = 111;
+        const uint keyD = 32;
+        if (input.KeyCode is keyLeftControl or keyRightControl)
+        {
+            _controlPressed = input.Pressed;
+            return;
+        }
         if (!input.Pressed) return;
         if (input.KeyCode == keyEscape)
         {
@@ -145,9 +155,14 @@ internal sealed class EutherWireApplication : IForgeApplication
         else if (input.KeyCode == keyDelete && _ui?.Focused is null &&
             _activeTool == ToolKind.Select && _activeHandle is null &&
             _draftPoints.Count == 0 && _dimensionStart is null &&
-            _selectedObjectId is ObjectId selected)
+            _selectedObjectId is not null)
         {
-            DeleteSelection(selected);
+            DeleteSelection();
+        }
+        else if (input.KeyCode == keyD && _controlPressed && _ui?.Focused is null &&
+            _activeTool == ToolKind.Select && _activeHandle is null && _selectedObjectId is not null)
+        {
+            DuplicateSelection();
         }
     }
 
@@ -285,7 +300,9 @@ internal sealed class EutherWireApplication : IForgeApplication
             }
             else
             {
-                _selectedObjectId = HitObject(pointer.X, pointer.Y);
+                ObjectId? hit = HitObject(pointer.X, pointer.Y);
+                if (_controlPressed && hit is ObjectId toggled) ToggleSelection(toggled);
+                else SelectOnly(hit);
                 if (_selectedObjectId is ObjectId selectedId &&
                     _document.Devices.TryGetValue(selectedId, out Device? selectedDevice) &&
                     selectedDevice.MountingSurface != MountingSurface.Free)
@@ -296,7 +313,9 @@ internal sealed class EutherWireApplication : IForgeApplication
                 {
                     _activeSurface = selectedOpening.Surface;
                 }
-                _statusMessage = _selectedObjectId is ObjectId selected ? $"Selected {selected}" : "Selection cleared";
+                _statusMessage = _selectedObjectId is ObjectId selected
+                    ? $"Selected {_selectedObjectIds.Count} · primary {selected}"
+                    : "Selection cleared";
             }
         }
 
@@ -465,7 +484,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         MountingSurface surface = _viewMode == ViewMode.Plan ? MountingSurface.Free : _activeSurface;
         var device = CreatePlacedDevice(id, snapped.Plan, number, snapped.Z, surface);
         _history.Execute(_document, new AddDeviceCommand(device));
-        _selectedObjectId = id;
+        SelectOnly(id);
         _dirty = true;
         _statusMessage = $"Placed {id} on {device.MountingSurface} at {snapped.X:0}, {snapped.Y:0}, Z {snapped.Z:0} mm";
     }
@@ -477,7 +496,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         int number = _document.Annotations.Count + 1;
         var annotation = new Annotation(id, snapped, $"ANTECKNING {number:00}");
         _history.Execute(_document, new AddAnnotationCommand(annotation));
-        _selectedObjectId = id;
+        SelectOnly(id);
         _activeTool = ToolKind.Select;
         _dirty = true;
         _statusMessage = $"Placed {id}; edit text in the inspector";
@@ -503,7 +522,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         int number = _document.Openings.Values.Count(opening => opening.Kind == _openingKind) + 1;
         var opening = new BuildingOpening(id, _openingKind, _activeSurface, position, width, height, $"{prefix}-{number:00}");
         _history.Execute(_document, new AddOpeningCommand(opening));
-        _selectedObjectId = id;
+        SelectOnly(id);
         _activeTool = ToolKind.Select;
         _dirty = true;
         _statusMessage = $"Placed {opening.Label} on {_activeSurface}; switched to SEL";
@@ -535,7 +554,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         ObjectId id = ObjectId.Parse($"dimension-{Guid.NewGuid():N}");
         var dimension = new WallDimension(id, _activeSurface, start, snapped);
         _history.Execute(_document, new AddWallDimensionCommand(dimension));
-        _selectedObjectId = id;
+        SelectOnly(id);
         _dimensionStart = null;
         _activeTool = ToolKind.Select;
         _dirty = true;
@@ -728,7 +747,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             ProjectDiagnostic diagnostic = analysis.Diagnostics[index];
             if (diagnostic.ObjectId is ObjectId objectId && DiagnosticRect(inspectorX, index).Contains(pointer.X, pointer.Y))
             {
-                _selectedObjectId = objectId;
+                SelectOnly(objectId);
                 _activeTool = ToolKind.Select;
                 _activeHandle = null;
                 SyncSelectedLabelEditor();
@@ -740,7 +759,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             if (DeleteRect(inspectorX).Contains(pointer.X, pointer.Y))
             {
-                DeleteSelection(selected);
+                DeleteSelection();
                 return true;
             }
             if (_document.Devices.TryGetValue(selected, out Device? heightDevice) && ElevationMinusRect(inspectorX).Contains(pointer.X, pointer.Y))
@@ -846,19 +865,43 @@ internal sealed class EutherWireApplication : IForgeApplication
         return false;
     }
 
-    private void DeleteSelection(ObjectId selected)
+    private void DeleteSelection()
     {
+        ObjectId[] selected = _selectedObjectIds.Count > 0
+            ? _selectedObjectIds.ToArray()
+            : _selectedObjectId is ObjectId primary ? [primary] : [];
+        if (selected.Length == 0) return;
         try
         {
-            _history.Execute(_document, new DeleteObjectCommand(selected));
-            _selectedObjectId = null;
+            _history.Execute(_document, selected.Length == 1
+                ? new DeleteObjectCommand(selected[0])
+                : new DeleteObjectsCommand(selected));
+            SelectOnly(null);
             _dirty = true;
-            _statusMessage = $"Deleted {selected}";
+            _statusMessage = $"Deleted {selected.Length} object{(selected.Length == 1 ? string.Empty : "s")}";
         }
         catch (InvalidOperationException exception)
         {
             _statusMessage = exception.Message;
         }
+    }
+
+    private void DuplicateSelection()
+    {
+        ObjectId[] selected = _selectedObjectIds.Count > 0
+            ? _selectedObjectIds.ToArray()
+            : _selectedObjectId is ObjectId primary ? [primary] : [];
+        if (selected.Length == 0) return;
+        Vector2 offset = _viewMode == ViewMode.Wall && _activeSurface is
+            MountingSurface.EastWallInterior or MountingSurface.EastWallExterior or
+            MountingSurface.WestWallInterior or MountingSurface.WestWallExterior
+                ? new Vector2(0, 300)
+                : _viewMode == ViewMode.Wall ? new Vector2(300, 0) : new Vector2(300, 300);
+        var command = new DuplicateObjectsCommand(selected, offset);
+        _history.Execute(_document, command);
+        SelectMany(command.CreatedIds);
+        _dirty = true;
+        _statusMessage = $"Duplicated {selected.Length} object{(selected.Length == 1 ? string.Empty : "s")}";
     }
 
     private void AdjustDeviceElevation(Device device, double delta)
@@ -984,7 +1027,7 @@ internal sealed class EutherWireApplication : IForgeApplication
                 25,
                 route,
                 InstallationMethod.Concealed)));
-            _selectedObjectId = id;
+            SelectOnly(id);
         }
         else if (_activeTool == ToolKind.Wire)
         {
@@ -997,7 +1040,7 @@ internal sealed class EutherWireApplication : IForgeApplication
                 route,
                 _draftFrom,
                 _draftTo)));
-            _selectedObjectId = id;
+            SelectOnly(id);
         }
         else
         {
@@ -1030,10 +1073,45 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private void EnsureSelectionExists()
     {
+        _selectedObjectIds.RemoveWhere(id => !_document.Contains(id));
         if (_selectedObjectId is ObjectId selected && !_document.Contains(selected))
         {
-            _selectedObjectId = null;
+            _selectedObjectId = _selectedObjectIds.LastOrDefault();
+            if (_selectedObjectId == default) _selectedObjectId = null;
         }
+    }
+
+    private bool IsSelected(ObjectId id) => _selectedObjectIds.Contains(id) || _selectedObjectId == id;
+
+    private void SelectOnly(ObjectId? id)
+    {
+        _selectedObjectIds.Clear();
+        _selectedObjectId = id;
+        if (id is ObjectId selected) _selectedObjectIds.Add(selected);
+    }
+
+    private void SelectMany(IEnumerable<ObjectId> ids)
+    {
+        _selectedObjectIds.Clear();
+        foreach (ObjectId id in ids) _selectedObjectIds.Add(id);
+        _selectedObjectId = _selectedObjectIds.LastOrDefault();
+        if (_selectedObjectId == default) _selectedObjectId = null;
+        SyncSelectedLabelEditor();
+    }
+
+    private void ToggleSelection(ObjectId id)
+    {
+        if (!_selectedObjectIds.Remove(id))
+        {
+            _selectedObjectIds.Add(id);
+            _selectedObjectId = id;
+        }
+        else if (_selectedObjectId == id)
+        {
+            _selectedObjectId = _selectedObjectIds.LastOrDefault();
+            if (_selectedObjectId == default) _selectedObjectId = null;
+        }
+        SyncSelectedLabelEditor();
     }
 
     private void SyncSelectedLabelEditor()
@@ -1431,16 +1509,16 @@ internal sealed class EutherWireApplication : IForgeApplication
 
         foreach (BuildingOpening opening in _document.Openings.Values)
         {
-            Draw3DOpening(canvas, opening, _selectedObjectId == opening.Id);
+            Draw3DOpening(canvas, opening, IsSelected(opening.Id));
         }
 
         foreach (Conduit conduit in _document.Conduits.Values)
         {
-            Draw3DRoute(canvas, conduit.Route.SpatialPoints, _selectedObjectId == conduit.Id ? 0xffffcc66 : 0xff708898, _selectedObjectId == conduit.Id ? 7 : 5);
+            Draw3DRoute(canvas, conduit.Route.SpatialPoints, IsSelected(conduit.Id) ? 0xffffcc66 : 0xff708898, IsSelected(conduit.Id) ? 7 : 5);
         }
         foreach (CableRoute cable in _document.Cables.Values)
         {
-            Draw3DRoute(canvas, cable.Route.SpatialPoints, _selectedObjectId == cable.Id ? 0xffffcc66 : 0xff55c8ff, _selectedObjectId == cable.Id ? 5 : 2);
+            Draw3DRoute(canvas, cable.Route.SpatialPoints, IsSelected(cable.Id) ? 0xffffcc66 : 0xff55c8ff, IsSelected(cable.Id) ? 5 : 2);
         }
         foreach (Device device in _document.Devices.Values)
         {
@@ -1452,12 +1530,12 @@ internal sealed class EutherWireApplication : IForgeApplication
             int width = device.Kind == DeviceKind.DistributionBoard ? 90 : 70;
             int height = device.Kind == DeviceKind.DistributionBoard ? 48 : 36;
             canvas.FillRect((int)x - width / 2, (int)y - height / 2, width, height, 0xff20303b);
-            canvas.DrawRect((int)x - width / 2, (int)y - height / 2, width, height, _selectedObjectId == device.Id ? 0xffffcc66 : color);
+            canvas.DrawRect((int)x - width / 2, (int)y - height / 2, width, height, IsSelected(device.Id) ? 0xffffcc66 : color);
             canvas.DrawText((int)x - width / 2 + 5, (int)y - 4, device.Label, color);
         }
         foreach (WallDimension dimension in _document.WallDimensions.Values)
         {
-            if (dimension.Surface == _activeSurface) DrawWallDimension(canvas, dimension, _selectedObjectId == dimension.Id);
+            if (dimension.Surface == _activeSurface) DrawWallDimension(canvas, dimension, IsSelected(dimension.Id));
         }
         if (_activeTool == ToolKind.Dimension && _dimensionStart is Point3 dimensionStart)
         {
@@ -1604,19 +1682,19 @@ internal sealed class EutherWireApplication : IForgeApplication
 
         foreach (BuildingOpening opening in _document.Openings.Values)
         {
-            if (opening.Surface == _activeSurface) DrawWallOpening(canvas, opening, _selectedObjectId == opening.Id);
+            if (opening.Surface == _activeSurface) DrawWallOpening(canvas, opening, IsSelected(opening.Id));
         }
         foreach (Conduit conduit in _document.Conduits.Values)
         {
-            DrawWallRoute(canvas, conduit.Route.SpatialPoints, _selectedObjectId == conduit.Id ? 0xffffcc66 : 0xff708898, _selectedObjectId == conduit.Id ? 7 : 5);
+            DrawWallRoute(canvas, conduit.Route.SpatialPoints, IsSelected(conduit.Id) ? 0xffffcc66 : 0xff708898, IsSelected(conduit.Id) ? 7 : 5);
         }
         foreach (CableRoute cable in _document.Cables.Values)
         {
-            DrawWallRoute(canvas, cable.Route.SpatialPoints, _selectedObjectId == cable.Id ? 0xffffcc66 : 0xff55c8ff, _selectedObjectId == cable.Id ? 5 : 2);
+            DrawWallRoute(canvas, cable.Route.SpatialPoints, IsSelected(cable.Id) ? 0xffffcc66 : 0xff55c8ff, IsSelected(cable.Id) ? 5 : 2);
         }
         foreach (Device device in _document.Devices.Values)
         {
-            if (device.MountingSurface == _activeSurface) DrawWallDevice(canvas, device, _selectedObjectId == device.Id);
+            if (device.MountingSurface == _activeSurface) DrawWallDevice(canvas, device, IsSelected(device.Id));
         }
         if (_draftPoints.Count > 0)
         {
@@ -1822,7 +1900,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     {
         foreach (Conduit conduit in _document.Conduits.Values)
         {
-            if (_selectedObjectId == conduit.Id)
+            if (IsSelected(conduit.Id))
             {
                 DrawRoute(canvas, conduit.Route.Points, 0xffffcc66, 9);
             }
@@ -1830,7 +1908,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
         foreach (CableRoute cable in _document.Cables.Values)
         {
-            if (_selectedObjectId == cable.Id)
+            if (IsSelected(cable.Id))
             {
                 DrawRoute(canvas, cable.Route.Points, 0xffffcc66, 6);
             }
@@ -1839,16 +1917,16 @@ internal sealed class EutherWireApplication : IForgeApplication
         foreach (Device device in _document.Devices.Values)
         {
             (double width, double height, uint color) = DeviceStyle(device.Kind);
-            DrawDevice(canvas, device, width, height, color, _selectedObjectId == device.Id);
+            DrawDevice(canvas, device, width, height, color, IsSelected(device.Id));
         }
         foreach (BuildingOpening opening in _document.Openings.Values)
         {
             Point2[] edge = OpeningPlanEdge(opening);
-            DrawRoute(canvas, edge, _selectedObjectId == opening.Id ? 0xffffcc66 : 0xffd8895b, _selectedObjectId == opening.Id ? 9 : 5);
+            DrawRoute(canvas, edge, IsSelected(opening.Id) ? 0xffffcc66 : 0xffd8895b, IsSelected(opening.Id) ? 9 : 5);
         }
         foreach (Annotation annotation in _document.Annotations.Values)
         {
-            DrawAnnotation(canvas, annotation, _selectedObjectId == annotation.Id);
+            DrawAnnotation(canvas, annotation, IsSelected(annotation.Id));
         }
     }
 
@@ -2054,7 +2132,10 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.DrawText(inspectorX + 18, 112, $"Undo: {_history.UndoCount}   Redo: {_history.RedoCount}", 0xff9eb0bb);
             return;
         }
-        canvas.DrawText(inspectorX + 18, 56, selected.ToString(), 0xff63d4ff);
+        string selectionTitle = _selectedObjectIds.Count > 1
+            ? $"{_selectedObjectIds.Count} SELECTED · {selected}"
+            : selected.ToString();
+        canvas.DrawText(inspectorX + 18, 56, selectionTitle, 0xff63d4ff);
         if (_document.Devices.TryGetValue(selected, out Device? device))
         {
             canvas.DrawText(inspectorX + 18, 78, $"{device.Kind}  {device.Label}", 0xffc7d4dc);
