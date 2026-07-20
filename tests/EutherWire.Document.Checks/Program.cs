@@ -24,6 +24,27 @@ Require(route.LengthMillimetres == 8000, "Polyline length must use document mill
 var spatialRoute = new Polyline([new Point3(0, 0, 0), new Point3(3000, 4000, 12000)]);
 Require(spatialRoute.LengthMillimetres == 13000, "Polyline length must include vertical installation distance.");
 
+SpaceVolume wallSpace = SpaceVolume.GarageDefault;
+MountingSurface[] wallSurfaces = Enum.GetValues<MountingSurface>().Where(WallCoordinateSystem.IsWall).ToArray();
+Require(wallSurfaces.Length == 8, "Wall elevations must cover four inner and four outer wall faces.");
+foreach (MountingSurface surface in wallSurfaces)
+{
+    double width = WallCoordinateSystem.Width(wallSpace, surface);
+    double height = WallCoordinateSystem.Height(wallSpace, surface);
+    double horizontal = width * 0.37;
+    double elevation = height * 0.61;
+    Point3 wallPoint = WallCoordinateSystem.FromWallCoordinates(wallSpace, surface, horizontal, elevation);
+    Require(WallCoordinateSystem.IsOnWall(wallSpace, surface, wallPoint), $"{surface} coordinates must remain on their named wall plane.");
+    Require(Math.Abs(WallCoordinateSystem.HorizontalCoordinate(wallSpace, surface, wallPoint) - horizontal) < 0.001, $"{surface} wall coordinates must round-trip horizontally.");
+    Require(Math.Abs(wallPoint.Z - elevation) < 0.001, $"{surface} wall coordinates must preserve finished-floor elevation.");
+}
+Require(
+    WallCoordinateSystem.Width(wallSpace, MountingSurface.NorthWallExterior) == wallSpace.WidthMillimetres + wallSpace.WallThicknessMillimetres * 2,
+    "Outer wall elevations must include both corner wall thicknesses.");
+Require(
+    WallCoordinateSystem.Height(wallSpace, MountingSurface.NorthWallExterior) == wallSpace.HeightMillimetres + wallSpace.CeilingThicknessMillimetres,
+    "Outer wall elevations must include the ceiling build-up.");
+
 ObjectId cameraId = ObjectId.Parse("camera-north");
 var camera = new Device(
     cameraId,

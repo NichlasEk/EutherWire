@@ -11,6 +11,7 @@ using SystemRegisIII.WaylandForge.App;
 using SystemRegisIII.WaylandForge.Ui;
 
 bool startupIn3D = args.Contains("--3d", StringComparer.Ordinal);
+bool startupInWall = args.Contains("--wall", StringComparer.Ordinal);
 string? startupCamera = args.FirstOrDefault(argument => argument.StartsWith("--camera=", StringComparison.OrdinalIgnoreCase))?["--camera=".Length..];
 string? requestedDirectory = args.FirstOrDefault(argument => !argument.StartsWith("--", StringComparison.Ordinal));
 string? startupDirectory = requestedDirectory is not null
@@ -23,7 +24,7 @@ ProjectDocument startupDocument = startupDirectory is not null
     : ProjectTemplates.CreateGarageDraft();
 
 return ForgeApplicationHost.Run(
-    new EutherWireApplication(startupDocument, startupDirectory, startupIn3D, startupCamera),
+    new EutherWireApplication(startupDocument, startupDirectory, startupIn3D, startupInWall, startupCamera),
     new ForgeWindowOptions(1280, 800, $"EutherWire - {startupDocument.Name}"));
 
 internal sealed class EutherWireApplication : IForgeApplication
@@ -34,6 +35,7 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private readonly CanvasCamera _camera = new();
     private readonly IsometricCamera _camera3D = new();
+    private readonly WallCamera _cameraWall = new();
     private readonly ProjectDocument _document;
     private readonly string? _projectDirectory;
     private readonly CommandHistory _history = new();
@@ -56,11 +58,12 @@ internal sealed class EutherWireApplication : IForgeApplication
     private ViewMode _viewMode;
     private MountingSurface _activeSurface = MountingSurface.FloorInterior;
 
-    public EutherWireApplication(ProjectDocument document, string? projectDirectory, bool startIn3D = false, string? startupCamera = null)
+    public EutherWireApplication(ProjectDocument document, string? projectDirectory, bool startIn3D = false, bool startInWall = false, string? startupCamera = null)
     {
         _document = document;
         _projectDirectory = projectDirectory;
-        _viewMode = startIn3D ? ViewMode.ThreeD : ViewMode.Plan;
+        _viewMode = startInWall ? ViewMode.Wall : startIn3D ? ViewMode.ThreeD : ViewMode.Plan;
+        if (startInWall) _activeSurface = MountingSurface.SouthWallInterior;
         if (!string.IsNullOrWhiteSpace(startupCamera)) _camera3D.SetNamedView(startupCamera);
     }
 
@@ -72,6 +75,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         int canvasBottom = Math.Max(1, frame.Canvas.Height - StatusHeight);
         var work = new RectI(ToolbarWidth, 0, canvasRight - ToolbarWidth, canvasBottom);
         _camera3D.Configure(work, _document.Space);
+        _cameraWall.Configure(work, _document.Space, WallSurfaceOrDefault());
         bool chromeAction = HandleChromeActions(frame);
         if (!chromeAction)
         {
@@ -91,6 +95,10 @@ internal sealed class EutherWireApplication : IForgeApplication
             if (_viewMode == ViewMode.ThreeD)
             {
                 Draw3DScene(canvas, work);
+            }
+            else if (_viewMode == ViewMode.Wall)
+            {
+                DrawWallScene(canvas, work);
             }
             else
             {
@@ -112,9 +120,12 @@ internal sealed class EutherWireApplication : IForgeApplication
         if (!input.Pressed) return;
         if (input.KeyCode == keyF9)
         {
-            _viewMode = _viewMode == ViewMode.Plan ? ViewMode.ThreeD : ViewMode.Plan;
-            _activeHandle = null;
-            _statusMessage = _viewMode == ViewMode.ThreeD ? "3D view · drawing plane: floor" : "Plan view";
+            SetViewMode(_viewMode switch
+            {
+                ViewMode.Plan => ViewMode.ThreeD,
+                ViewMode.ThreeD => ViewMode.Wall,
+                _ => ViewMode.Plan,
+            });
         }
         else if (input.KeyCode == keyF10 && _viewMode == ViewMode.ThreeD)
         {
@@ -139,6 +150,22 @@ internal sealed class EutherWireApplication : IForgeApplication
             {
                 _handledScrollSerial = frame.ScrollInput.Serial;
                 _camera3D.Zoom(frame.ScrollInput.Delta);
+            }
+            return;
+        }
+        if (_viewMode == ViewMode.Wall)
+        {
+            bool wallPanning = pointer.Buttons.HasFlag(PointerButtons.Middle) ||
+                pointer.Buttons.HasFlag(PointerButtons.Right) ||
+                (_activeTool == ToolKind.Pan && pointer.LeftPressed);
+            if (wallPanning && _previousPointer.IsInside)
+            {
+                _cameraWall.Pan(pointer.X - _previousPointer.X, pointer.Y - _previousPointer.Y);
+            }
+            if (frame.ScrollInput.Serial != 0 && frame.ScrollInput.Serial != _handledScrollSerial)
+            {
+                _handledScrollSerial = frame.ScrollInput.Serial;
+                _cameraWall.ZoomAt(pointer.X, pointer.Y, frame.ScrollInput.Delta);
             }
             return;
         }
@@ -182,6 +209,11 @@ internal sealed class EutherWireApplication : IForgeApplication
             }
             if (_activeTool == ToolKind.Text)
             {
+                if (_viewMode == ViewMode.Wall)
+                {
+                    _statusMessage = "Wall annotations are not implemented yet";
+                    return;
+                }
                 PlaceAnnotation(ScreenToDocument(pointer.X, pointer.Y));
                 return;
             }
@@ -220,9 +252,9 @@ internal sealed class EutherWireApplication : IForgeApplication
 
         if (pressed && _activeHandle is EditHandleId active)
         {
-            if (_viewMode == ViewMode.ThreeD && active.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Elevation or EditHandleKind.Vertex)
+            if (_viewMode != ViewMode.Plan && active.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Elevation or EditHandleKind.Vertex)
             {
-                Point3 destination = active.Kind == EditHandleKind.Elevation
+                Point3 destination = active.Kind == EditHandleKind.Elevation && _viewMode == ViewMode.ThreeD
                     ? SnapElevationHandle(active, pointer.Y)
                     : SnapSpatialHandle(ScreenToSpatial(pointer.X, pointer.Y));
                 DocumentHandleEditor.SetSpatialPosition(_document, active, destination);
@@ -235,7 +267,7 @@ internal sealed class EutherWireApplication : IForgeApplication
 
         if (released && _activeHandle is EditHandleId completed)
         {
-            if (_viewMode == ViewMode.ThreeD && completed.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Elevation or EditHandleKind.Vertex)
+            if (_viewMode != ViewMode.Plan && completed.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Elevation or EditHandleKind.Vertex)
             {
                 Point3 destination = DocumentHandleEditor.RequireSpatialPosition(_document, completed);
                 DocumentHandleEditor.SetSpatialPosition(_document, completed, _dragOriginSpatial);
@@ -341,6 +373,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             {
                 continue;
             }
+            if (_viewMode == ViewMode.Wall && !HandleVisibleInWall(handle)) continue;
             (double x, double y) = HandleToScreen(handle);
             if (Math.Abs(screenX - x) <= 10 && Math.Abs(screenY - y) <= 10)
             {
@@ -362,7 +395,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         Point3 snapped = new(Math.Round(position.X / 100) * 100, Math.Round(position.Y / 100) * 100, Math.Round(position.Z / 100) * 100);
         ObjectId id = ObjectId.Parse($"junction-{Guid.NewGuid():N}");
         int number = _document.Devices.Values.Count(device => device.Kind == _placementKind) + 1;
-        MountingSurface surface = _viewMode == ViewMode.ThreeD ? _activeSurface : MountingSurface.Free;
+        MountingSurface surface = _viewMode == ViewMode.Plan ? MountingSurface.Free : _activeSurface;
         var device = CreatePlacedDevice(id, snapped.Plan, number, snapped.Z, surface);
         _history.Execute(_document, new AddDeviceCommand(device));
         _selectedObjectId = id;
@@ -415,6 +448,27 @@ internal sealed class EutherWireApplication : IForgeApplication
         MountingSurface.WestWallInterior or MountingSurface.WestWallExterior or
         MountingSurface.EastWallInterior or MountingSurface.EastWallExterior;
 
+    private MountingSurface WallSurfaceOrDefault() => IsWallSurface(_activeSurface)
+        ? _activeSurface
+        : MountingSurface.NorthWallInterior;
+
+    private void SetViewMode(ViewMode mode)
+    {
+        _viewMode = mode;
+        if (mode == ViewMode.Wall && !IsWallSurface(_activeSurface))
+        {
+            _activeSurface = MountingSurface.NorthWallInterior;
+        }
+        _activeHandle = null;
+        CancelDraft("View changed; draft cancelled");
+        _statusMessage = mode switch
+        {
+            ViewMode.ThreeD => $"3D view · drawing surface: {_activeSurface}",
+            ViewMode.Wall => $"Wall elevation: {_activeSurface}",
+            _ => "Plan view",
+        };
+    }
+
     private static bool IsExteriorWall(MountingSurface surface) => surface is
         MountingSurface.NorthWallExterior or MountingSurface.SouthWallExterior or
         MountingSurface.WestWallExterior or MountingSurface.EastWallExterior;
@@ -441,7 +495,9 @@ internal sealed class EutherWireApplication : IForgeApplication
             (3, false) => MountingSurface.WestWallInterior,
             _ => MountingSurface.WestWallExterior,
         };
-        _statusMessage = $"Opening target: {_activeSurface}";
+        _statusMessage = _viewMode == ViewMode.Wall
+            ? $"Wall elevation: {_activeSurface}"
+            : $"Opening target: {_activeSurface}";
     }
 
     private bool HandleChromeActions(in ForgeFrame frame)
@@ -468,13 +524,32 @@ internal sealed class EutherWireApplication : IForgeApplication
                 return true;
             }
         }
-        for (int index = 0; index < 2; index++)
+        for (int index = 0; index < 3; index++)
         {
             if (ViewRect(index).Contains(pointer.X, pointer.Y))
             {
-                _viewMode = (ViewMode)index;
-                _activeHandle = null;
-                _statusMessage = _viewMode == ViewMode.ThreeD ? "3D view · drawing plane: floor" : "Plan view";
+                SetViewMode((ViewMode)index);
+                return true;
+            }
+        }
+        if (_viewMode == ViewMode.Wall)
+        {
+            for (int index = 0; index < 4; index++)
+            {
+                if (WallOverlayDirectionRect(index).Contains(pointer.X, pointer.Y))
+                {
+                    SetOpeningWall(index, IsExteriorWall(_activeSurface));
+                    return true;
+                }
+            }
+            if (WallOverlayFaceRect(false).Contains(pointer.X, pointer.Y))
+            {
+                SetOpeningWall(CurrentWallDirection(), false);
+                return true;
+            }
+            if (WallOverlayFaceRect(true).Contains(pointer.X, pointer.Y))
+            {
+                SetOpeningWall(CurrentWallDirection(), true);
                 return true;
             }
         }
@@ -620,12 +695,15 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
         if (ViewToggleRect(inspectorX).Contains(pointer.X, pointer.Y))
         {
-            _viewMode = _viewMode == ViewMode.Plan ? ViewMode.ThreeD : ViewMode.Plan;
-            _activeHandle = null;
-            _statusMessage = _viewMode == ViewMode.ThreeD ? "3D view · drawing plane: floor" : "Plan view";
+            SetViewMode(_viewMode switch
+            {
+                ViewMode.Plan => ViewMode.Wall,
+                ViewMode.Wall => ViewMode.ThreeD,
+                _ => ViewMode.Plan,
+            });
             return true;
         }
-        if (SurfaceRect(inspectorX).Contains(pointer.X, pointer.Y))
+        if (_viewMode != ViewMode.Plan && SurfaceRect(inspectorX).Contains(pointer.X, pointer.Y))
         {
             CycleSurface();
             return true;
@@ -702,11 +780,15 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private void CycleSurface()
     {
-        MountingSurface[] surfaces = Enum.GetValues<MountingSurface>().Where(surface => surface != MountingSurface.Free).ToArray();
+        MountingSurface[] surfaces = _viewMode == ViewMode.Wall
+            ? Enum.GetValues<MountingSurface>().Where(IsWallSurface).ToArray()
+            : Enum.GetValues<MountingSurface>().Where(surface => surface != MountingSurface.Free).ToArray();
         int index = (Array.IndexOf(surfaces, _activeSurface) + 1) % surfaces.Length;
         _activeSurface = surfaces[index];
         CancelDraft("Drawing surface changed; draft cancelled");
-        _statusMessage = $"3D drawing surface: {_activeSurface}";
+        _statusMessage = _viewMode == ViewMode.Wall
+            ? $"Wall elevation: {_activeSurface}"
+            : $"3D drawing surface: {_activeSurface}";
     }
 
     private void SetConduitDiameter(Conduit conduit, int direction)
@@ -948,7 +1030,8 @@ internal sealed class EutherWireApplication : IForgeApplication
             {
                 continue;
             }
-            if (_viewMode != ViewMode.ThreeD && handle.Id.Kind == EditHandleKind.Elevation) continue;
+            if (_viewMode == ViewMode.Plan && handle.Id.Kind == EditHandleKind.Elevation) continue;
+            if (_viewMode == ViewMode.Wall && !HandleVisibleInWall(handle)) continue;
             if (!DocumentHandleEditor.CanSetPosition(handle.Id))
             {
                 continue;
@@ -965,6 +1048,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     private ObjectId? HitObject(int screenX, int screenY)
     {
         if (_viewMode == ViewMode.ThreeD) return HitObject3D(screenX, screenY);
+        if (_viewMode == ViewMode.Wall) return HitObjectWall(screenX, screenY);
         Point2 point = _camera.ScreenToDocument(screenX, screenY);
         foreach (Annotation annotation in _document.Annotations.Values.Reverse())
         {
@@ -1040,18 +1124,42 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private Point3 ScreenToSpatial(double screenX, double screenY)
     {
-        if (_viewMode != ViewMode.ThreeD)
+        if (_viewMode == ViewMode.Plan)
         {
             Point2 plan = _camera.ScreenToDocument(screenX, screenY);
             return new Point3(plan.X, plan.Y, 0);
         }
+        if (_viewMode == ViewMode.Wall) return _cameraWall.Unproject(screenX, screenY);
         return _camera3D.UnprojectSurface(screenX, screenY, _activeSurface);
     }
 
     private (double X, double Y) HandleToScreen(EditHandle handle)
     {
-        if (_viewMode != ViewMode.ThreeD) return _camera.DocumentToScreen(handle.Position);
-        return _camera3D.Project(new Point3(handle.Position.X, handle.Position.Y, HandleElevation(handle)));
+        if (_viewMode == ViewMode.Plan) return _camera.DocumentToScreen(handle.Position);
+        var point = new Point3(handle.Position.X, handle.Position.Y, HandleElevation(handle));
+        return _viewMode == ViewMode.Wall ? _cameraWall.Project(point) : _camera3D.Project(point);
+    }
+
+    private bool HandleVisibleInWall(EditHandle handle)
+    {
+        if (_document.Devices.TryGetValue(handle.Id.ObjectId, out Device? device))
+        {
+            return device.MountingSurface == _activeSurface;
+        }
+        if (_document.Openings.TryGetValue(handle.Id.ObjectId, out BuildingOpening? opening))
+        {
+            return opening.Surface == _activeSurface;
+        }
+        if (handle.Id.Kind == EditHandleKind.Vertex && handle.Id.Index is int index)
+        {
+            Point3 point = _document.Conduits.TryGetValue(handle.Id.ObjectId, out Conduit? conduit)
+                ? conduit.Route.SpatialPoints[index]
+                : _document.Cables.TryGetValue(handle.Id.ObjectId, out CableRoute? cable)
+                    ? cable.Route.SpatialPoints[index]
+                    : new Point3(double.NaN, double.NaN, double.NaN);
+            return _cameraWall.IsOnWall(point);
+        }
+        return false;
     }
 
     private double HandleElevation(EditHandle handle)
@@ -1095,6 +1203,47 @@ internal sealed class EutherWireApplication : IForgeApplication
             if (HitRoute3D(screenX, screenY, conduit.Route.SpatialPoints, 10)) return conduit.Id;
         }
         return null;
+    }
+
+    private ObjectId? HitObjectWall(int screenX, int screenY)
+    {
+        foreach (BuildingOpening opening in _document.Openings.Values.Reverse())
+        {
+            if (opening.Surface != _activeSurface) continue;
+            Point3[] corners = OpeningCorners(opening);
+            if (HitRouteWall(screenX, screenY, [.. corners, corners[0]], 10)) return opening.Id;
+        }
+        foreach (Device device in _document.Devices.Values.Reverse())
+        {
+            if (device.MountingSurface != _activeSurface) continue;
+            Point3 centre = new(device.Position.X, device.Position.Y, device.ElevationMillimetres);
+            (double x, double y) = _cameraWall.Project(centre);
+            (double width, double height, _) = DeviceStyle(device.Kind);
+            double halfWidth = Math.Max(12, width * _cameraWall.PixelsPerMillimetre / 2);
+            double halfHeight = Math.Max(10, height * _cameraWall.PixelsPerMillimetre / 2);
+            if (Math.Abs(screenX - x) <= halfWidth && Math.Abs(screenY - y) <= halfHeight) return device.Id;
+        }
+        foreach (CableRoute cable in _document.Cables.Values.Reverse())
+        {
+            if (HitRouteWall(screenX, screenY, cable.Route.SpatialPoints, 8)) return cable.Id;
+        }
+        foreach (Conduit conduit in _document.Conduits.Values.Reverse())
+        {
+            if (HitRouteWall(screenX, screenY, conduit.Route.SpatialPoints, 10)) return conduit.Id;
+        }
+        return null;
+    }
+
+    private bool HitRouteWall(int screenX, int screenY, IReadOnlyList<Point3> points, double tolerance)
+    {
+        for (int index = 1; index < points.Count; index++)
+        {
+            if (!_cameraWall.IsOnWall(points[index - 1]) || !_cameraWall.IsOnWall(points[index])) continue;
+            (double x0, double y0) = _cameraWall.Project(points[index - 1]);
+            (double x1, double y1) = _cameraWall.Project(points[index]);
+            if (DistanceToSegment(screenX, screenY, x0, y0, x1, y1) <= tolerance) return true;
+        }
+        return false;
     }
 
     private bool HitRoute3D(int screenX, int screenY, IReadOnlyList<Point3> points, double tolerance)
@@ -1274,6 +1423,174 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
     }
 
+    private void DrawWallScene(SoftwareCanvas canvas, RectI work)
+    {
+        double widthMillimetres = _cameraWall.WallWidthMillimetres;
+        double heightMillimetres = _cameraWall.WallHeightMillimetres;
+        Point3 lowerLeft = _cameraWall.PointFromWallCoordinates(0, 0);
+        Point3 upperRight = _cameraWall.PointFromWallCoordinates(widthMillimetres, heightMillimetres);
+        (double left, double bottom) = _cameraWall.Project(lowerLeft);
+        (double right, double top) = _cameraWall.Project(upperRight);
+        int wallLeft = (int)Math.Round(Math.Min(left, right));
+        int wallTop = (int)Math.Round(Math.Min(top, bottom));
+        int wallWidth = Math.Max(1, (int)Math.Round(Math.Abs(right - left)));
+        int wallHeight = Math.Max(1, (int)Math.Round(Math.Abs(bottom - top)));
+        canvas.FillRect(wallLeft, wallTop, wallWidth, wallHeight, IsExteriorWall(_activeSurface) ? 0xff202a31 : 0xff1c2a33);
+
+        for (double horizontal = 0; horizontal <= widthMillimetres; horizontal += 500)
+        {
+            bool major = Math.Abs(horizontal / 1000 - Math.Round(horizontal / 1000)) < 0.00001;
+            DrawWallLine(
+                canvas,
+                _cameraWall.PointFromWallCoordinates(horizontal, 0),
+                _cameraWall.PointFromWallCoordinates(horizontal, heightMillimetres),
+                major ? 0xff354b58 : 0xff293943,
+                1);
+        }
+        for (double elevation = 0; elevation <= heightMillimetres; elevation += 500)
+        {
+            bool major = Math.Abs(elevation / 1000 - Math.Round(elevation / 1000)) < 0.00001;
+            DrawWallLine(
+                canvas,
+                _cameraWall.PointFromWallCoordinates(0, elevation),
+                _cameraWall.PointFromWallCoordinates(widthMillimetres, elevation),
+                major ? 0xff354b58 : 0xff293943,
+                1);
+        }
+        canvas.DrawRect(wallLeft, wallTop, wallWidth, wallHeight, 0xffffcc66);
+        DrawWallLine(canvas, lowerLeft, _cameraWall.PointFromWallCoordinates(widthMillimetres, 0), 0xff8ca4af, 3);
+
+        foreach (BuildingOpening opening in _document.Openings.Values)
+        {
+            if (opening.Surface == _activeSurface) DrawWallOpening(canvas, opening, _selectedObjectId == opening.Id);
+        }
+        foreach (Conduit conduit in _document.Conduits.Values)
+        {
+            DrawWallRoute(canvas, conduit.Route.SpatialPoints, _selectedObjectId == conduit.Id ? 0xffffcc66 : 0xff708898, _selectedObjectId == conduit.Id ? 7 : 5);
+        }
+        foreach (CableRoute cable in _document.Cables.Values)
+        {
+            DrawWallRoute(canvas, cable.Route.SpatialPoints, _selectedObjectId == cable.Id ? 0xffffcc66 : 0xff55c8ff, _selectedObjectId == cable.Id ? 5 : 2);
+        }
+        foreach (Device device in _document.Devices.Values)
+        {
+            if (device.MountingSurface == _activeSurface) DrawWallDevice(canvas, device, _selectedObjectId == device.Id);
+        }
+        if (_draftPoints.Count > 0)
+        {
+            DrawWallRoute(canvas, _draftPoints.Append(_draftPointer).ToList(), 0xffffcc66, 2);
+        }
+        DrawWallHandles(canvas);
+        DrawWallSelectionDimensions(canvas);
+        DrawWallOverlay(canvas);
+        canvas.DrawText(work.X + 14, work.Y + 14, $"WALL ELEVATION · {_activeSurface}", 0xffffcc66);
+    }
+
+    private void DrawWallOpening(SoftwareCanvas canvas, BuildingOpening opening, bool selected)
+    {
+        Point3[] corners = OpeningCorners(opening);
+        uint color = selected ? 0xffffcc66 : opening.Kind == OpeningKind.Window ? 0xff78c7e8 : 0xffd8895b;
+        for (int index = 0; index < corners.Length; index++)
+        {
+            DrawWallLine(canvas, corners[index], corners[(index + 1) % corners.Length], color, selected ? 5 : 3);
+        }
+        DrawWallLine(canvas, corners[0], corners[2], 0xff5f4a3e, 1);
+        DrawWallLine(canvas, corners[1], corners[3], 0xff5f4a3e, 1);
+        (double x, double y) = _cameraWall.Project(opening.Centre);
+        canvas.DrawText((int)x - opening.Label.Length * 3, (int)y - 4, opening.Label, color);
+    }
+
+    private void DrawWallDevice(SoftwareCanvas canvas, Device device, bool selected)
+    {
+        Point3 centre = new(device.Position.X, device.Position.Y, device.ElevationMillimetres);
+        (double x, double y) = _cameraWall.Project(centre);
+        (double widthMillimetres, double heightMillimetres, uint color) = DeviceStyle(device.Kind);
+        int width = Math.Max(24, (int)Math.Round(widthMillimetres * _cameraWall.PixelsPerMillimetre));
+        int height = Math.Max(20, (int)Math.Round(heightMillimetres * _cameraWall.PixelsPerMillimetre));
+        int left = (int)Math.Round(x) - width / 2;
+        int top = (int)Math.Round(y) - height / 2;
+        canvas.FillRect(left, top, width, height, 0xff20303b);
+        canvas.DrawRect(left, top, width, height, color);
+        if (selected) canvas.DrawRect(left - 3, top - 3, width + 6, height + 6, 0xffffcc66);
+        canvas.DrawText(left + 5, (int)y - 4, device.Label, color);
+    }
+
+    private void DrawWallRoute(SoftwareCanvas canvas, IReadOnlyList<Point3> points, uint color, int thickness)
+    {
+        for (int index = 1; index < points.Count; index++)
+        {
+            if (!_cameraWall.IsOnWall(points[index - 1]) || !_cameraWall.IsOnWall(points[index])) continue;
+            DrawWallLine(canvas, points[index - 1], points[index], color, thickness);
+        }
+    }
+
+    private void DrawWallLine(SoftwareCanvas canvas, Point3 start, Point3 end, uint color, int thickness)
+    {
+        (double x0, double y0) = _cameraWall.Project(start);
+        (double x1, double y1) = _cameraWall.Project(end);
+        for (int offset = -(thickness / 2); offset <= thickness / 2; offset++)
+        {
+            canvas.DrawLine((int)x0 + offset, (int)y0, (int)x1 + offset, (int)y1, color);
+        }
+    }
+
+    private void DrawWallHandles(SoftwareCanvas canvas)
+    {
+        foreach (EditHandle handle in DocumentHandles.Enumerate(_document))
+        {
+            if (_selectedObjectId != handle.Id.ObjectId || !HandleVisibleInWall(handle)) continue;
+            (double x, double y) = HandleToScreen(handle);
+            if (handle.Id.Kind == EditHandleKind.Elevation && _document.Devices.TryGetValue(handle.Id.ObjectId, out Device? device))
+            {
+                (double baseX, double baseY) = _cameraWall.Project(new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres));
+                canvas.DrawLine((int)baseX, (int)baseY, (int)x, (int)y, HandleColor(EditHandleKind.Elevation));
+            }
+            int size = _activeHandle == handle.Id ? 11 : handle.Id.Kind == EditHandleKind.Port ? 5 : 7;
+            canvas.FillRect((int)x - size / 2, (int)y - size / 2, size, size, 0xff101820);
+            canvas.DrawRect((int)x - size / 2, (int)y - size / 2, size, size, HandleColor(handle.Id.Kind));
+        }
+    }
+
+    private void DrawWallSelectionDimensions(SoftwareCanvas canvas)
+    {
+        Point3? selectedPoint = _selectedObjectId is ObjectId selected && _document.Devices.TryGetValue(selected, out Device? device) && device.MountingSurface == _activeSurface
+            ? new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres)
+            : _selectedObjectId is ObjectId openingId && _document.Openings.TryGetValue(openingId, out BuildingOpening? opening) && opening.Surface == _activeSurface
+                ? opening.Centre
+                : null;
+        if (selectedPoint is not Point3 point) return;
+
+        double horizontal = _cameraWall.HorizontalCoordinate(point);
+        double wallWidth = _cameraWall.WallWidthMillimetres;
+        bool fromLeft = horizontal <= wallWidth / 2;
+        double cornerOffset = fromLeft ? horizontal : wallWidth - horizontal;
+        Point3 floorPoint = _cameraWall.PointFromWallCoordinates(horizontal, 0);
+        Point3 cornerPoint = _cameraWall.PointFromWallCoordinates(fromLeft ? 0 : wallWidth, point.Z);
+        DrawWallLine(canvas, floorPoint, point, 0xff61e294, 1);
+        DrawWallLine(canvas, cornerPoint, point, 0xff61e294, 1);
+        (double x, double y) = _cameraWall.Project(point);
+        canvas.DrawText((int)x + 10, (int)y + 12, $"FLOOR {point.Z:0} mm", 0xff61e294);
+        canvas.DrawText((int)x + 10, (int)y + 28, $"{(fromLeft ? "LEFT" : "RIGHT")} {cornerOffset:0} mm", 0xff61e294);
+    }
+
+    private void DrawWallOverlay(SoftwareCanvas canvas)
+    {
+        string[] directions = ["N", "S", "E", "W"];
+        int current = CurrentWallDirection();
+        for (int index = 0; index < directions.Length; index++)
+        {
+            RectI rect = WallOverlayDirectionRect(index);
+            DrawChromeButton(canvas, rect, directions[index], true);
+            if (index == current) canvas.DrawRect(rect.X - 2, rect.Y - 2, rect.Width + 4, rect.Height + 4, 0xffffcc66);
+        }
+        RectI inside = WallOverlayFaceRect(false);
+        RectI outside = WallOverlayFaceRect(true);
+        DrawChromeButton(canvas, inside, "INSIDE", true);
+        DrawChromeButton(canvas, outside, "OUTSIDE", true);
+        RectI active = IsExteriorWall(_activeSurface) ? outside : inside;
+        canvas.DrawRect(active.X - 2, active.Y - 2, active.Width + 4, active.Height + 4, 0xffffcc66);
+    }
+
     private void DrawGrid(SoftwareCanvas canvas, RectI work)
     {
         double minorStep = SelectGridStep();
@@ -1442,14 +1759,15 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.DrawText(rect.X + 10, rect.Y + 13, ToolLabel((ToolKind)index), active ? 0xff63d4ff : 0xff9eb0bb);
         }
         canvas.DrawText(14, 408, "VIEW", 0xff728996);
-        for (int index = 0; index < 2; index++)
+        for (int index = 0; index < 3; index++)
         {
             RectI rect = ViewRect(index);
             bool active = (int)_viewMode == index;
             canvas.DrawRect(rect.X, rect.Y, rect.Width, rect.Height, active ? 0xffffcc66 : 0xff3c5261);
-            canvas.DrawText(rect.X + 8, rect.Y + 13, index == 0 ? "PLAN" : "3D", active ? 0xffffcc66 : 0xff9eb0bb);
+            string label = index switch { 0 => "PLAN", 1 => "3D", _ => "WALL" };
+            canvas.DrawText(rect.X + 8, rect.Y + 13, label, active ? 0xffffcc66 : 0xff9eb0bb);
         }
-        canvas.DrawText(14, 522, "CAMERA", 0xff728996);
+        canvas.DrawText(14, 566, "CAMERA", 0xff728996);
         RectI cameraRect = CameraRect();
         canvas.DrawRect(cameraRect.X, cameraRect.Y, cameraRect.Width, cameraRect.Height, _viewMode == ViewMode.ThreeD ? 0xffffcc66 : 0xff3c5261);
         canvas.DrawText(cameraRect.X + 7, cameraRect.Y + 13, _camera3D.ViewLabel, _viewMode == ViewMode.ThreeD ? 0xffffcc66 : 0xff667680);
@@ -1463,8 +1781,8 @@ internal sealed class EutherWireApplication : IForgeApplication
         DrawChromeButton(canvas, ButtonRect(inspectorX, 1), "UNDO", _history.UndoCount > 0);
         DrawChromeButton(canvas, ButtonRect(inspectorX, 2), "REDO", _history.RedoCount > 0);
         DrawChromeButton(canvas, ExportPngRect(inspectorX), "PNG", _projectDirectory is not null);
-        DrawChromeButton(canvas, ViewToggleRect(inspectorX), _viewMode == ViewMode.Plan ? "3D" : "PLAN", true);
-        DrawChromeButton(canvas, SurfaceRect(inspectorX), SurfaceLabel(_activeSurface), _viewMode == ViewMode.ThreeD);
+        DrawChromeButton(canvas, ViewToggleRect(inspectorX), NextViewLabel(), true);
+        DrawChromeButton(canvas, SurfaceRect(inspectorX), SurfaceLabel(_activeSurface), _viewMode != ViewMode.Plan);
         canvas.DrawText(inspectorX + 18, 226, _dirty ? $"MODIFIED · {_statusMessage}" : _statusMessage, _dirty ? 0xffffcc66 : 0xff9eb0bb);
         if (_draftPoints.Count > 0)
         {
@@ -1492,11 +1810,13 @@ internal sealed class EutherWireApplication : IForgeApplication
 
         canvas.FillRect(ToolbarWidth, work.Bottom, work.Width, StatusHeight, 0xff0b1117);
         Point3 spatialPoint = ScreenToSpatial(pointer.X, pointer.Y);
-        canvas.DrawText(ToolbarWidth + 12, work.Bottom + 10,
-            _viewMode == ViewMode.ThreeD
-                ? $"3D {_activeSurface}   X {spatialPoint.X:0}   Y {spatialPoint.Y:0}   Z {spatialPoint.Z:0} mm   RMB orbit · MMB pan · wheel zoom"
-                : $"X {spatialPoint.X:0} mm   Y {spatialPoint.Y:0} mm   Zoom {_camera.PixelsPerMillimetre * 1000:0} px/m   MMB/RMB pan   Wheel zoom",
-            0xff91a6b3);
+        string status = _viewMode switch
+        {
+            ViewMode.ThreeD => $"3D {_activeSurface}   X {spatialPoint.X:0}   Y {spatialPoint.Y:0}   Z {spatialPoint.Z:0} mm   RMB orbit · MMB pan · wheel zoom",
+            ViewMode.Wall => $"WALL {_activeSurface}   ALONG {_cameraWall.HorizontalCoordinate(spatialPoint):0}   FLOOR {spatialPoint.Z:0} mm   ZOOM {_cameraWall.ZoomPercent}%   MMB/RMB pan · wheel zoom",
+            _ => $"X {spatialPoint.X:0} mm   Y {spatialPoint.Y:0} mm   Zoom {_camera.PixelsPerMillimetre * 1000:0} px/m   MMB/RMB pan   Wheel zoom",
+        };
+        canvas.DrawText(ToolbarWidth + 12, work.Bottom + 10, status, 0xff91a6b3);
     }
 
     private void DrawSelectionInspector(SoftwareCanvas canvas, int inspectorX)
@@ -1866,6 +2186,10 @@ internal sealed class EutherWireApplication : IForgeApplication
         new(inspectorX + 18 + index * 56, 398, 48, 30);
     private static RectI WallFaceRect(int inspectorX, bool exterior) =>
         new(inspectorX + 18 + (exterior ? 116 : 0), 444, 104, 30);
+    private static RectI WallOverlayDirectionRect(int index) =>
+        new(ToolbarWidth + 16 + index * 46, 38, 40, 30);
+    private static RectI WallOverlayFaceRect(bool exterior) =>
+        new(ToolbarWidth + 208 + (exterior ? 88 : 0), 38, 80, 30);
 
     private static void DrawChromeButton(SoftwareCanvas canvas, RectI rect, string label, bool enabled)
     {
@@ -1878,9 +2202,16 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     private static RectI ToolRect(int index) => new(10, 64 + index * 48, 52, 34);
     private static RectI ViewRect(int index) => new(10, 428 + index * 44, 52, 32);
-    private static RectI CameraRect() => new(10, 542, 52, 32);
+    private static RectI CameraRect() => new(10, 586, 52, 32);
 
     private const int ToolCount = 7;
+
+    private string NextViewLabel() => _viewMode switch
+    {
+        ViewMode.Plan => "WALL",
+        ViewMode.Wall => "3D",
+        _ => "PLAN",
+    };
 
     private static string ToolLabel(ToolKind tool) => tool switch
     {
@@ -2004,6 +2335,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     {
         Plan,
         ThreeD,
+        Wall,
     }
 
 }

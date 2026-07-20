@@ -61,6 +61,15 @@ The intended workflow is:
   snapping. The symbol palette includes ceiling lights as well as boxes,
   outlets, central equipment, cameras, switches, and access points.
 - `./eutherwire.sh 3d` creates and opens a safe writable 3D Garage Draft.
+- `./eutherwire.sh wall` opens a safe orthographic wall elevation over the same
+  document. It has persistent N/S/E/W and inside/outside selectors, a 500 mm
+  grid with 1,000 mm major lines, mounted-object filtering, wall-local route
+  rendering, pointer-anchored pan/zoom, selection, placement, and spatial
+  handle editing.
+- Selected wall devices and openings show exact height above finished floor
+  and distance from the nearest visible corner.
+- WALL zoom has 23 discrete levels from 20% to 3,200% so both whole-wall
+  overview and small penetration details remain practical.
 
 The current renderer is deliberately a clear technical installation view, not
 a photorealistic game renderer. It uses WaylandForge's deterministic software
@@ -76,6 +85,13 @@ canvas and remains useful on systems without a GPU API configured.
 - explicit one-axis Z handles for route vertices and touch use.
 
 All of these remain command-based and addressable without screen coordinates.
+
+### Wall elevations
+
+The first wall-elevation slice is implemented. The next refinement is to add
+dimension annotations that can be positioned for printed documentation, snap
+profiles for common mounting heights, and direct wall-local route-vertex Z
+handles suitable for touch.
 
 ### Garage geometry
 

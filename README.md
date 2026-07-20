@@ -34,6 +34,15 @@ To open the editable Garage Draft directly in the 3D installation view:
 ./eutherwire.sh 3d
 ```
 
+To open it directly as an orthographic wall elevation:
+
+```sh
+./eutherwire.sh wall
+```
+
+The wall demo starts on the south inside wall so Garage Draft's garage door is
+immediately visible.
+
 Use the `PLAN`/`3D` control to switch views. In 3D, the button beside it cycles
 through the floor, inner/outer ceiling, and every inner/outer wall. The yellow
 outline is the active drawing surface. Choose `DEV` to place a box or lamp on
@@ -59,6 +68,13 @@ place the opening; EutherWire immediately returns to `SEL` so additional clicks
 cannot accidentally create more doors. Selecting the opening exposes exact width
 and height fields plus named `resize:start` and `resize:end` handles.
 
+The `WALL` view shows one selected wall straight on. Use `N`/`S`/`E`/`W` and
+`INSIDE`/`OUTSIDE` to choose the face. Openings, mounted devices, and route
+segments on that wall share their exact coordinates with PLAN and 3D. Selected
+devices and openings show offsets from finished floor and the nearest visible
+corner. Middle/right drag pans; the wheel steps through 23 pointer-anchored zoom
+levels from 20% overview to 3200% detail.
+
 This initializes WaylandForge if needed, builds the solution, and opens a
 writable Garage Draft under `.eutherwire-work/`. The tracked example is never
 modified. Other useful modes are:
@@ -66,6 +82,7 @@ modified. Other useful modes are:
 ```sh
 ./eutherwire.sh check
 ./eutherwire.sh 3d
+./eutherwire.sh wall
 ./eutherwire.sh report
 ./eutherwire.sh properties
 ./eutherwire.sh tasks

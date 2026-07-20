@@ -4,7 +4,7 @@ Date: 2026-07-20
 
 ## Resume point
 
-The current published EutherWire checkpoint is:
+The handoff baseline was:
 
 ```text
 c9f0dd4 Improve 3D elevation and wall opening controls
@@ -63,6 +63,13 @@ board, PoE switch, camera, conduit, CAT6 cable, and a garage-door opening.
   cable and conduit endpoints.
 - Numeric fields accept the main number row and numeric keypad; Enter applies
   the value.
+- WALL is an orthographic elevation over a selected N/S/E/W inner or outer
+  wall. It renders a 500 mm grid, openings, mounted devices, and wall-local
+  cable/conduit segments over the same X/Y/Z data used by PLAN and 3D.
+- WALL supports placement, selection, hit testing, and spatial handle editing.
+- Selected wall devices and openings show finished-floor height and nearest
+  visible-corner offset.
+- WALL has 23 pointer-anchored zoom levels from 20% to 3,200% plus pan.
 
 ### Garage geometry and openings
 
@@ -103,6 +110,7 @@ example is not modified.
 ```sh
 ./eutherwire.sh
 ./eutherwire.sh 3d
+./eutherwire.sh wall
 ```
 
 Useful non-interactive checks:
@@ -127,7 +135,7 @@ analysis errors or warnings.
   photorealistic room renderer.
 - Openings are visible geometry but are not yet subtracted from filled wall
   surfaces.
-- There is no dedicated orthographic wall-elevation editor yet.
+- Wall elevations do not yet have printable, repositionable dimension objects.
 - Route vertices can move in 3D, but dedicated one-axis touch-friendly Z
   handles still need to be added for them.
 - Snapping does not yet cover every corner, existing route, port, configured
@@ -138,23 +146,21 @@ analysis errors or warnings.
 - Mobile installation mode and camera/gyroscope AR are designed but not yet
   implemented. The staged design is in `mobile-installation-ar-plan.md`.
 
-## Recommended next slice
+## Wall-elevation slice
 
-Build a wall-elevation editing mode over the existing model:
+The first wall-elevation editing mode now provides:
 
-1. choose N/S/E/W and inside/outside;
-2. show the selected wall orthographically, including floor and ceiling edges;
-3. render doors, windows, penetrations, mounted devices, and routes on it;
-4. place and drag objects using wall-local horizontal and vertical coordinates;
-5. show exact offsets from the nearest corner and finished floor;
-6. keep every edit command-based and addressable through semantic handles;
-7. add tests proving plan, wall elevation, and 3D remain views of identical
-   object coordinates.
+1. N/S/E/W and inside/outside selection;
+2. an orthographic wall with floor/ceiling edges and metric grid;
+3. doors, windows, penetrations, mounted devices, and wall-local routes;
+4. placement and drag editing in wall horizontal/elevation coordinates;
+5. nearest-corner and finished-floor offsets;
+6. command-based semantic-handle edits over the shared model.
 
-This slice makes ordinary installation drawing much easier and establishes the
-same wall-local coordinate system needed by phone calibration and AR overlays.
-After that, subtract openings from walls, add route-vertex Z handles, improve
-surface snapping, and add collision/clearance diagnostics.
+The next recommended slice is to subtract openings from filled walls, add
+printable wall dimensions and common mounting-height snap profiles, then add
+route-vertex Z handles and collision/clearance diagnostics. The wall-local
+coordinate system is also the basis for phone calibration and AR overlays.
 
 ## Mobile direction
 
