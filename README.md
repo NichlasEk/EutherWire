@@ -58,6 +58,12 @@ Selected devices also have an orange vertical elevation handle and `Z -100` /
 `Z +100` controls. Exact numeric fields accept both the main number row and
 the numeric keypad; press Enter to apply the typed millimetres.
 
+Every editable cable/conduit vertex also has an orange one-axis elevation
+handle in WALL and 3D. For example, `camera-north-pipe:elevation:1` changes only
+that vertex's Z value while preserving X/Y; contained cable geometry follows
+and the move remains undoable. Elevation handles are hidden in PLAN to avoid
+overlapping the ordinary blue X/Y vertex handles.
+
 Garage Draft now includes a first-class 5,000 × 2,200 mm garage-door opening
 on the south wall. Openings retain their wall, 3D centre, dimensions, stable
 handles, and IDs through TOML, SVG, and PNG export.
@@ -118,6 +124,7 @@ The CLI uses the same semantic handles as the UI:
 dotnet run --project src/EutherWire.Cli -- handles examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- properties examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- move examples/garage.eutherwire camera-north-pipe:vertex:1 7000 -3000
+dotnet run --project src/EutherWire.Cli -- move3d examples/garage.eutherwire camera-north-pipe:elevation:1 6500 -1000 2700
 dotnet run --project src/EutherWire.Cli -- set-property examples/garage.eutherwire camera-north-cat6:property:installation_status tested
 dotnet run --project src/EutherWire.Cli -- validate examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- report examples/garage.eutherwire

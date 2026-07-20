@@ -303,15 +303,16 @@ internal sealed class EutherWireApplication : IForgeApplication
             Math.Round(point.Z / 100) * 100);
         bool deviceHeightHandle = (handle.Kind is EditHandleKind.Move or EditHandleKind.Elevation) &&
             _document.Devices.ContainsKey(handle.ObjectId);
-        return _viewMode == ViewMode.Wall && deviceHeightHandle && _wallSnapHeightMillimetres is double height
+        bool routeElevationHandle = handle.Kind == EditHandleKind.Elevation && handle.Index >= 0;
+        return _viewMode == ViewMode.Wall && (deviceHeightHandle || routeElevationHandle) && _wallSnapHeightMillimetres is double height
             ? new Point3(snapped.X, snapped.Y, handle.Kind == EditHandleKind.Elevation ? height + DocumentHandles.ElevationHandleOffsetMillimetres : height)
             : snapped;
     }
 
     private Point3 SnapElevationHandle(EditHandleId handle, double screenY)
     {
-        Device device = _document.RequireDevice(handle.ObjectId);
-        Point3 point = _camera3D.UnprojectElevation(screenY, device.Position);
+        Point2 anchor = DocumentHandleEditor.RequirePosition(_document, handle);
+        Point3 point = _camera3D.UnprojectElevation(screenY, anchor);
         return new Point3(point.X, point.Y, Math.Round(point.Z / 100) * 100);
     }
 
@@ -1178,7 +1179,7 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             return opening.Surface == _activeSurface;
         }
-        if (handle.Id.Kind == EditHandleKind.Vertex && handle.Id.Index is int index)
+        if ((handle.Id.Kind is EditHandleKind.Vertex or EditHandleKind.Elevation) && handle.Id.Index is int index)
         {
             Point3 point = _document.Conduits.TryGetValue(handle.Id.ObjectId, out Conduit? conduit)
                 ? conduit.Route.SpatialPoints[index]
@@ -1202,10 +1203,14 @@ internal sealed class EutherWireApplication : IForgeApplication
                 ? BuildingOpeningGeometry.ResizeHandle(opening, handle.Id.Name ?? throw new InvalidOperationException("Resize handle has no name.")).Z
                 : opening.Centre.Z;
         }
-        if (handle.Id.Kind == EditHandleKind.Vertex && handle.Id.Index is int index)
+        if ((handle.Id.Kind is EditHandleKind.Vertex or EditHandleKind.Elevation) && handle.Id.Index is int index)
         {
-            if (_document.Conduits.TryGetValue(handle.Id.ObjectId, out Conduit? conduit)) return conduit.Route.SpatialPoints[index].Z;
-            if (_document.Cables.TryGetValue(handle.Id.ObjectId, out CableRoute? cable)) return cable.Route.SpatialPoints[index].Z;
+            double elevation = _document.Conduits.TryGetValue(handle.Id.ObjectId, out Conduit? conduit)
+                ? conduit.Route.SpatialPoints[index].Z
+                : _document.Cables.TryGetValue(handle.Id.ObjectId, out CableRoute? cable)
+                    ? cable.Route.SpatialPoints[index].Z
+                    : 0;
+            return elevation + (handle.Id.Kind == EditHandleKind.Elevation ? DocumentHandles.ElevationHandleOffsetMillimetres : 0);
         }
         return 0;
     }
@@ -1402,9 +1407,11 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             if (_selectedObjectId != handle.Id.ObjectId) continue;
             (double x, double y) = HandleToScreen(handle);
-            if (handle.Id.Kind == EditHandleKind.Elevation && _document.Devices.TryGetValue(handle.Id.ObjectId, out Device? device))
+            if (handle.Id.Kind == EditHandleKind.Elevation)
             {
-                (double baseX, double baseY) = _camera3D.Project(new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres));
+                Point3 elevationPoint = DocumentHandleEditor.RequireSpatialPosition(_document, handle.Id);
+                Point3 basePoint = new(elevationPoint.X, elevationPoint.Y, Math.Max(0, elevationPoint.Z - DocumentHandles.ElevationHandleOffsetMillimetres));
+                (double baseX, double baseY) = _camera3D.Project(basePoint);
                 canvas.DrawLine((int)baseX, (int)baseY, (int)x, (int)y, HandleColor(EditHandleKind.Elevation));
             }
             int size = _activeHandle == handle.Id ? 11 : 7;
@@ -1580,9 +1587,11 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             if (_selectedObjectId != handle.Id.ObjectId || !HandleVisibleInWall(handle)) continue;
             (double x, double y) = HandleToScreen(handle);
-            if (handle.Id.Kind == EditHandleKind.Elevation && _document.Devices.TryGetValue(handle.Id.ObjectId, out Device? device))
+            if (handle.Id.Kind == EditHandleKind.Elevation)
             {
-                (double baseX, double baseY) = _cameraWall.Project(new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres));
+                Point3 elevationPoint = DocumentHandleEditor.RequireSpatialPosition(_document, handle.Id);
+                Point3 basePoint = new(elevationPoint.X, elevationPoint.Y, Math.Max(0, elevationPoint.Z - DocumentHandles.ElevationHandleOffsetMillimetres));
+                (double baseX, double baseY) = _cameraWall.Project(basePoint);
                 canvas.DrawLine((int)baseX, (int)baseY, (int)x, (int)y, HandleColor(EditHandleKind.Elevation));
             }
             int size = _activeHandle == handle.Id ? 11 : handle.Id.Kind == EditHandleKind.Port ? 5 : 7;
@@ -1737,6 +1746,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             {
                 continue;
             }
+            if (handle.Id.Kind == EditHandleKind.Elevation) continue;
             (double x, double y) = _camera.DocumentToScreen(handle.Position);
             bool active = _activeHandle == handle.Id;
             int size = active ? 11 : handle.Id.Kind == EditHandleKind.Port ? 5 : 7;

@@ -73,6 +73,9 @@ board, PoE switch, camera, conduit, CAT6 cable, and a garage-door opening.
 - WALL masks the grid inside building openings so they read as actual cutouts.
 - FREE/300/1100/2200/2400 mm height profiles snap new mounted devices, new
   wall routes, and dragged device handles to common finished-floor heights.
+- Editable cable/conduit vertices have stable indexed elevation handles in
+  WALL and 3D. They preserve X/Y, update only Z, propagate through contained
+  cable geometry, and remain command-based and undoable.
 
 ### Garage geometry and openings
 
@@ -127,10 +130,10 @@ Useful non-interactive checks:
 ./eutherwire.sh png
 ```
 
-The last full check before this handoff completed with zero build warnings and
-zero build errors. Document checks passed. Garage Draft reported schema 5,
-three devices, one opening, one conduit, one cable, 19 semantic handles, and no
-analysis errors or warnings.
+The latest full check completed with zero build warnings and zero build errors.
+Document checks passed. Garage Draft reported schema 5, three devices, one
+opening, one conduit, one cable, 22 semantic handles, and no analysis errors or
+warnings.
 
 ## Current limitations
 
@@ -139,8 +142,8 @@ analysis errors or warnings.
 - WALL has visual opening cutouts; future filled 3D walls still need the same
   subtraction treatment.
 - Wall elevations do not yet have printable, repositionable dimension objects.
-- Route vertices can move in 3D, but dedicated one-axis touch-friendly Z
-  handles still need to be added for them.
+- Route vertices have one-axis Z handles; mobile-sized hit targets and gestures
+  still need to be designed.
 - Snapping does not yet cover every corner, existing route, port, configured
   mounting height, or clearance rule.
 - Beams, pillars, workbenches, and vehicle clearance volumes are not modeled.

@@ -74,6 +74,7 @@ IReadOnlyList<EditHandle> handles = DocumentHandles.Enumerate(document);
 Require(handles.Any(handle => handle.Id.ToString() == "camera-north:move"), "Devices need stable move handles.");
 Require(handles.Any(handle => handle.Id.ToString() == "camera-north:port:eth0"), "Ports need named handles.");
 Require(handles.Any(handle => handle.Id.ToString() == "camera-north-pipe:vertex:1"), "Routes need indexed vertex handles.");
+Require(handles.Any(handle => handle.Id.ToString() == "camera-north-pipe:elevation:1"), "Routes need indexed one-axis elevation handles.");
 Require(handles.Select(handle => handle.Id).Distinct().Count() == handles.Count, "Handle IDs must be unique.");
 
 var vertexId = new EditHandleId(ObjectId.Parse("camera-north-pipe"), EditHandleKind.Vertex, 1);
@@ -111,6 +112,8 @@ wired.Add(new CableRoute(
 
 IReadOnlyList<EditHandle> connectedHandles = DocumentHandles.Enumerate(wired);
 Require(!connectedHandles.Any(handle => handle.Id.ObjectId == cableId && handle.Id.Kind == EditHandleKind.Vertex), "Contained cables must use conduit route handles.");
+Require(!connectedHandles.Any(handle => handle.Id.ObjectId == cableId && handle.Id.Kind == EditHandleKind.Elevation), "Contained cables must inherit conduit elevation handles.");
+Require(connectedHandles.Any(handle => handle.Id == EditHandleId.Parse("pipe:elevation:1")), "Conduit vertices need stable parseable elevation handles.");
 var connectedHistory = new CommandHistory();
 connectedHistory.Execute(wired, new MoveEditHandleCommand(new EditHandleId(targetId, EditHandleKind.Move), new Point2(2400, 300)));
 Require(wired.RequireCable(cableId).Route.Points[^1] == new Point2(2400, 300), "Connected cable ends must follow moved device ports.");
@@ -127,6 +130,13 @@ connectedHistory.Execute(wired, new MoveSpatialHandleCommand(new EditHandleId(pi
 Require(wired.RequireConduit(pipeId).Route.SpatialPoints[1] == new Point3(1200, -600, 1800), "Spatial vertex handles must edit X, Y, and Z together.");
 Require(wired.RequireCable(cableId).Route.SpatialPoints[1] == new Point3(1200, -600, 1800), "Contained cable geometry must follow spatial conduit handles.");
 Require(connectedHistory.Undo(wired), "Spatial route moves must be undoable.");
+var routeVertexElevationHandleId = EditHandleId.Parse("pipe:elevation:1");
+Require(DocumentHandleEditor.RequireSpatialPosition(wired, routeVertexElevationHandleId) == new Point3(1000, -500, 500), "Route elevation handles must sit above their vertex without changing its plan position.");
+connectedHistory.Execute(wired, new MoveSpatialHandleCommand(routeVertexElevationHandleId, new Point3(9000, 9000, 2500)));
+Require(wired.RequireConduit(pipeId).Route.SpatialPoints[1] == new Point3(1000, -500, 2000), "Route elevation handles must change only Z and ignore pointer X/Y drift.");
+Require(wired.RequireCable(cableId).Route.SpatialPoints[1] == new Point3(1000, -500, 2000), "Contained cable elevation must follow its conduit elevation handle.");
+Require(connectedHistory.Undo(wired), "Route elevation handle moves must be undoable.");
+Require(wired.RequireConduit(pipeId).Route.SpatialPoints[1] == new Point3(1000, -500, 0), "Route elevation undo must restore the exact vertex height.");
 
 var placed = new Device(ObjectId.Parse("placed-box"), DeviceKind.JunctionBox, new Point2(500, 600), "DOSA-01");
 connectedHistory.Execute(wired, new AddDeviceCommand(placed));

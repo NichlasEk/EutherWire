@@ -74,6 +74,10 @@ The intended workflow is:
   doors, and penetrations a clear cutout instead of drawing them over the wall.
 - Persistent FREE/300/1100/2200/2400 mm mounting profiles snap new devices,
   new wall routes, and device drag handles to common finished-floor heights.
+- Every editable route vertex has a stable indexed one-axis elevation handle,
+  such as `camera-north-pipe:elevation:1`. Orange vertical handles render in
+  WALL and 3D, preserve vertex X/Y, propagate conduit height into contained
+  cables, and use the shared undo/redo command path.
 
 The current renderer is deliberately a clear technical installation view, not
 a photorealistic game renderer. It uses WaylandForge's deterministic software
@@ -86,7 +90,8 @@ canvas and remains useful on systems without a GPU API configured.
 - wall-local horizontal and vertical handles;
 - snap to floor, ceiling, corners, existing routes, ports, and configured
   installation heights;
-- explicit one-axis Z handles for route vertices and touch use.
+- larger touch hit targets and mobile gestures for the implemented one-axis
+  route Z handles.
 
 All of these remain command-based and addressable without screen coordinates.
 
@@ -95,8 +100,8 @@ All of these remain command-based and addressable without screen coordinates.
 The first wall-elevation slice is implemented. The next refinement is to add
 dimension annotations that can be positioned for printed documentation, snap
 profiles tied to symbol/library metadata, and direct wall-local route-vertex Z
-handles suitable for touch. The first manual common-height profile row is now
-available in WALL.
+handles suitable for touch. Indexed route Z handles and the first manual
+common-height profile row are now available in WALL.
 
 ### Garage geometry
 

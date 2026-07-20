@@ -40,7 +40,7 @@ public readonly record struct EditHandleId(
         {
             return new EditHandleId(objectId, kind);
         }
-        if (kind == EditHandleKind.Vertex && int.TryParse(parts[2], out int index) && index >= 0)
+        if ((kind is EditHandleKind.Vertex or EditHandleKind.Elevation) && int.TryParse(parts[2], out int index) && index >= 0)
         {
             return new EditHandleId(objectId, kind, index);
         }
@@ -118,6 +118,9 @@ public static class DocumentHandles
             handles.Add(new EditHandle(
                 new EditHandleId(id, EditHandleKind.Vertex, index),
                 route.Points[index]));
+            handles.Add(new EditHandle(
+                new EditHandleId(id, EditHandleKind.Elevation, index),
+                route.Points[index]));
         }
     }
 
@@ -157,10 +160,16 @@ public static class DocumentHandleEditor
                 ? BuildingOpeningGeometry.ResizeHandle(opening, id.Name ?? throw new InvalidOperationException("Resize handle has no name."))
                 : opening.Centre;
         }
-        if (id.Kind == EditHandleKind.Vertex && id.Index >= 0)
+        if ((id.Kind is EditHandleKind.Vertex or EditHandleKind.Elevation) && id.Index >= 0)
         {
-            if (document.Conduits.TryGetValue(id.ObjectId, out Conduit? conduit)) return conduit.Route.SpatialPoints[id.Index];
-            if (document.Cables.TryGetValue(id.ObjectId, out CableRoute? cable)) return cable.Route.SpatialPoints[id.Index];
+            Point3 vertex = document.Conduits.TryGetValue(id.ObjectId, out Conduit? conduit)
+                ? conduit.Route.SpatialPoints[id.Index]
+                : document.Cables.TryGetValue(id.ObjectId, out CableRoute? cable)
+                    ? cable.Route.SpatialPoints[id.Index]
+                    : throw new KeyNotFoundException($"Route elevation handle '{id}' does not exist.");
+            return id.Kind == EditHandleKind.Elevation
+                ? new Point3(vertex.X, vertex.Y, vertex.Z + DocumentHandles.ElevationHandleOffsetMillimetres)
+                : vertex;
         }
         return new Point3(position.X, position.Y, 0);
     }
@@ -221,6 +230,13 @@ public static class DocumentHandleEditor
         }
         if (id.Kind == EditHandleKind.Elevation)
         {
+            if (id.Index >= 0)
+            {
+                Point3 vertex = RequireRouteVertex(document, id.ObjectId, id.Index);
+                double routeElevation = Math.Max(0, position.Z - DocumentHandles.ElevationHandleOffsetMillimetres);
+                SetSpatialPosition(document, new EditHandleId(id.ObjectId, EditHandleKind.Vertex, id.Index), new Point3(vertex.X, vertex.Y, routeElevation));
+                return;
+            }
             Device elevationDevice = document.RequireDevice(id.ObjectId);
             double elevation = Math.Max(0, position.Z - DocumentHandles.ElevationHandleOffsetMillimetres);
             SetSpatialPosition(document, new EditHandleId(id.ObjectId, EditHandleKind.Move), new Point3(elevationDevice.Position.X, elevationDevice.Position.Y, elevation));
@@ -289,6 +305,13 @@ public static class DocumentHandleEditor
                 document.Replace(cable with { Route = cable.Route.WithElevation(id.Index, position.Z) });
             }
         }
+    }
+
+    private static Point3 RequireRouteVertex(ProjectDocument document, ObjectId routeId, int index)
+    {
+        if (document.TryGetConduit(routeId, out Conduit? conduit) && conduit is not null) return conduit.Route.SpatialPoints[index];
+        if (document.TryGetCable(routeId, out CableRoute? cable) && cable is not null && cable.ConduitId is null) return cable.Route.SpatialPoints[index];
+        throw new KeyNotFoundException($"Route vertex '{routeId}:vertex:{index}' does not exist.");
     }
 
     public static void InsertVertex(ProjectDocument document, ObjectId routeId, int index, Point2 position)
