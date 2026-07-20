@@ -32,6 +32,7 @@ internal sealed class EutherWireApplication : IForgeApplication
     private const int ToolbarWidth = 72;
     private const int InspectorWidth = 280;
     private const int StatusHeight = 28;
+    private const int HandleHitRadius = 14;
 
     private readonly CanvasCamera _camera = new();
     private readonly IsometricCamera _camera3D = new();
@@ -109,6 +110,7 @@ internal sealed class EutherWireApplication : IForgeApplication
                 DrawDraft(canvas);
                 DrawHandles(canvas);
             }
+            DrawToolHint(canvas, work, frame.Pointer);
         }
 
         DrawChrome(canvas, work, frame.Pointer);
@@ -117,10 +119,15 @@ internal sealed class EutherWireApplication : IForgeApplication
 
     public void Key(in ForgeKeyEvent input)
     {
+        const uint keyEscape = 1;
         const uint keyF9 = 67;
         const uint keyF10 = 68;
         if (!input.Pressed) return;
-        if (input.KeyCode == keyF9)
+        if (input.KeyCode == keyEscape)
+        {
+            CancelCurrentOperation();
+        }
+        else if (input.KeyCode == keyF9)
         {
             SetViewMode(_viewMode switch
             {
@@ -133,6 +140,34 @@ internal sealed class EutherWireApplication : IForgeApplication
         {
             _camera3D.CycleView();
             _statusMessage = $"Camera: {_camera3D.ViewLabel}";
+        }
+    }
+
+    private void CancelCurrentOperation()
+    {
+        if (_activeHandle is EditHandleId handle)
+        {
+            if (_viewMode != ViewMode.Plan && handle.Kind is EditHandleKind.Move or EditHandleKind.Resize or EditHandleKind.Elevation or EditHandleKind.Vertex)
+            {
+                DocumentHandleEditor.SetSpatialPosition(_document, handle, _dragOriginSpatial);
+            }
+            else
+            {
+                DocumentHandleEditor.SetPosition(_document, handle, _dragOrigin);
+            }
+            _activeHandle = null;
+            _statusMessage = "Handle move cancelled";
+            return;
+        }
+        if (_draftPoints.Count > 0 || _dimensionStart is not null)
+        {
+            CancelDraft("Drawing cancelled with Esc");
+            return;
+        }
+        if (_activeTool != ToolKind.Select)
+        {
+            _activeTool = ToolKind.Select;
+            _statusMessage = "Tool cancelled; back to SEL";
         }
     }
 
@@ -1108,7 +1143,8 @@ internal sealed class EutherWireApplication : IForgeApplication
                 continue;
             }
             (double x, double y) = HandleToScreen(handle);
-            if (Math.Abs(screenX - x) <= 9 && Math.Abs(screenY - y) <= 9)
+            int hitRadius = handle.Id.Kind == EditHandleKind.Port ? 10 : HandleHitRadius;
+            if (Math.Abs(screenX - x) <= hitRadius && Math.Abs(screenY - y) <= hitRadius)
             {
                 return handle.Id;
             }
@@ -1477,7 +1513,7 @@ internal sealed class EutherWireApplication : IForgeApplication
                 (double baseX, double baseY) = _camera3D.Project(basePoint);
                 canvas.DrawLine((int)baseX, (int)baseY, (int)x, (int)y, HandleColor(EditHandleKind.Elevation));
             }
-            int size = _activeHandle == handle.Id ? 11 : 7;
+            int size = _activeHandle == handle.Id ? 15 : handle.Id.Kind == EditHandleKind.Port ? 7 : 11;
             canvas.FillRect((int)x - size / 2, (int)y - size / 2, size, size, 0xff101820);
             canvas.DrawRect((int)x - size / 2, (int)y - size / 2, size, size, HandleColor(handle.Id.Kind));
         }
@@ -1681,7 +1717,7 @@ internal sealed class EutherWireApplication : IForgeApplication
                 (double baseX, double baseY) = _cameraWall.Project(basePoint);
                 canvas.DrawLine((int)baseX, (int)baseY, (int)x, (int)y, HandleColor(EditHandleKind.Elevation));
             }
-            int size = _activeHandle == handle.Id ? 11 : handle.Id.Kind == EditHandleKind.Port ? 5 : 7;
+            int size = _activeHandle == handle.Id ? 15 : handle.Id.Kind == EditHandleKind.Port ? 7 : 11;
             canvas.FillRect((int)x - size / 2, (int)y - size / 2, size, size, 0xff101820);
             canvas.DrawRect((int)x - size / 2, (int)y - size / 2, size, size, HandleColor(handle.Id.Kind));
         }
@@ -1836,7 +1872,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             if (handle.Id.Kind == EditHandleKind.Elevation) continue;
             (double x, double y) = _camera.DocumentToScreen(handle.Position);
             bool active = _activeHandle == handle.Id;
-            int size = active ? 11 : handle.Id.Kind == EditHandleKind.Port ? 5 : 7;
+            int size = active ? 15 : handle.Id.Kind == EditHandleKind.Port ? 7 : 11;
             uint color = HandleColor(handle.Id.Kind);
             int left = (int)Math.Round(x) - size / 2;
             int top = (int)Math.Round(y) - size / 2;
@@ -1879,6 +1915,40 @@ internal sealed class EutherWireApplication : IForgeApplication
             canvas.DrawRect((int)x - 4, (int)y - 5, width, 18, 0xffffcc66);
         }
         canvas.DrawText((int)x, (int)y, annotation.Text, 0xffe6edf1);
+    }
+
+    private void DrawToolHint(SoftwareCanvas canvas, RectI work, PointerState pointer)
+    {
+        if (!work.Contains(pointer.X, pointer.Y)) return;
+        (string Title, string Detail)? hint = _activeHandle is EditHandleId active
+            ? ($"DRAG {active.Kind.ToString().ToUpperInvariant()}", "RELEASE APPLY · ESC CANCEL")
+            : _activeTool switch
+            {
+                ToolKind.Dimension when _viewMode != ViewMode.Wall => ("DIM", "SWITCH TO WALL"),
+                ToolKind.Dimension when _dimensionStart is null => ("DIM 1/2", "CLICK START · ESC CANCEL"),
+                ToolKind.Dimension => ("DIM 2/2", "CLICK END · ESC CANCEL"),
+                ToolKind.Wire when _draftPoints.Count == 0 => ("WIRE", "CLICK START · ESC CANCEL"),
+                ToolKind.Wire => ($"WIRE POINT {_draftPoints.Count + 1}", "CLICK NEXT · FINISH / ESC"),
+                ToolKind.Conduit when _draftPoints.Count == 0 => ("PIPE", "CLICK START · ESC CANCEL"),
+                ToolKind.Conduit => ($"PIPE POINT {_draftPoints.Count + 1}", "CLICK NEXT · FINISH / ESC"),
+                ToolKind.PlaceDevice => ("PLACE DEVICE", "CLICK SURFACE · ESC CANCEL"),
+                ToolKind.Opening => ("PLACE OPENING", "CLICK WALL · ESC CANCEL"),
+                ToolKind.Text => ("PLACE TEXT", "CLICK POSITION · ESC CANCEL"),
+                ToolKind.Pan => ("PAN", "DRAG VIEW · ESC TO SEL"),
+                _ => null,
+            };
+        if (hint is null) return;
+
+        int width = Math.Max(hint.Value.Title.Length, hint.Value.Detail.Length) * 6 + 16;
+        const int height = 38;
+        int x = Math.Min(pointer.X + 18, work.Right - width - 6);
+        int y = pointer.Y + 18 + height <= work.Bottom ? pointer.Y + 18 : pointer.Y - height - 18;
+        x = Math.Max(work.X + 6, x);
+        y = Math.Clamp(y, work.Y + 6, work.Bottom - height - 6);
+        canvas.FillRect(x, y, width, height, 0xee101820);
+        canvas.DrawRect(x, y, width, height, 0xffffcc66);
+        canvas.DrawText(x + 8, y + 8, hint.Value.Title, 0xffffcc66);
+        canvas.DrawText(x + 8, y + 23, hint.Value.Detail, 0xffccebf7);
     }
 
     private void DrawRoute(SoftwareCanvas canvas, IReadOnlyList<Point2> points, uint color, int thickness)

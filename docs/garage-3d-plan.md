@@ -102,6 +102,9 @@ can now be created with two clicks, repositioned through stable endpoint
 handles, and saved in schema 6. The next refinement is printable wall-elevation
 export and snap profiles tied to symbol/library metadata. Indexed route Z
 handles and the first manual common-height profile row are available in WALL.
+Tool-local pointer hints expose multi-click progress and `Esc` cancellation,
+while larger handle hit targets make WALL editing less dependent on
+pixel-perfect mouse control and provide a starting point for touch interaction.
 
 ### Garage geometry
 

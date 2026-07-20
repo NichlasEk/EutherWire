@@ -71,6 +71,13 @@ to drag its stable `resize:start` and `resize:end` handles, rename it in the
 inspector, delete it, or undo/redo the edit. Dimensions retain their wall face,
 3D endpoints, optional label, and IDs in `project.toml` schema 6.
 
+Active tools explain their next step beside the pointer. DIM shows `1/2` and
+`2/2`; WIRE and PIPE show the next route point, and placement tools identify
+the expected surface click. Press `Esc` to cancel any unfinished dimension,
+route, placement tool, or handle drag. Cancelling a drag restores the original
+geometry. Visible handles are larger and use a forgiving 28 × 28 pixel hit
+area, which also prepares the editor for touch input.
+
 Garage Draft now includes a first-class 5,000 × 2,200 mm garage-door opening
 on the south wall. Openings retain their wall, 3D centre, dimensions, stable
 handles, and IDs through TOML, SVG, and PNG export.

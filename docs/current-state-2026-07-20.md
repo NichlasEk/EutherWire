@@ -165,6 +165,10 @@ The first wall-elevation editing mode now provides:
 6. command-based semantic-handle edits over the shared model;
 7. two-click `DIM` objects with exact wall-local lengths and stable endpoint
    handles, persisted by project schema 6.
+8. pointer-local hints for multi-click tools and handle dragging, with `Esc`
+   cancellation that restores pre-drag geometry;
+9. larger handle markers and 28 × 28 pixel hit targets (20 × 20 for ports) in
+   PLAN, 3D, and WALL.
 
 The next recommended slice is to export printable wall elevations containing
 the new dimensions and bind common mounting heights to symbol/library metadata,
