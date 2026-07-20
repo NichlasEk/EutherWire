@@ -85,6 +85,15 @@ canvas and remains useful on systems without a GPU API configured.
 
 ## Next 3D slices
 
+### Electrical cable contents
+
+The structured cable/conductor model is specified in
+[`electrical-cable-model-plan.md`](electrical-cable-model-plan.md). It covers
+CAT6, EKRK, RK/FK, conductor area, conductor count, L1/L2/L3, neutral,
+protective earth, switched lives, circuit presets, conduit fill, validation,
+and material-list output. Its implementation follows multi-selection and
+duplication so repeated outlets and devices can be planned efficiently first.
+
 ### Height and surface handles
 
 - wall-local horizontal and vertical handles;

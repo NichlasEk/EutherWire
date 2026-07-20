@@ -53,6 +53,9 @@ the named surface in 3D and remains undoable. Use the right mouse button to
 orbit, middle mouse button to pan, and wheel to zoom. The `CAMERA` control or
 `F10` cycles ISO, NORTH, EAST, SOUTH, and WEST views. See
 [docs/garage-3d-plan.md](docs/garage-3d-plan.md) for the remaining roadmap.
+The planned structured electrical model for CAT6, EKRK, RK/FK, conductor area,
+phase/neutral/earth assignments, switched lives, and conduit contents is in
+[docs/electrical-cable-model-plan.md](docs/electrical-cable-model-plan.md).
 
 Selected devices also have an orange vertical elevation handle and `Z -100` /
 `Z +100` controls. Exact numeric fields accept both the main number row and
