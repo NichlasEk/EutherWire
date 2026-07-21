@@ -68,6 +68,13 @@ public static class ProjectToml
                 .OrderBy(record => record.ObjectId.Value, StringComparer.Ordinal)
                 .Select(ToFile)
                 .ToList(),
+            Sync = new SyncFile
+            {
+                AppliedEventIds = document.AppliedInstallationEventIds
+                    .OrderBy(id => id)
+                    .Select(id => id.ToString("D"))
+                    .ToList(),
+            },
         };
         return TomlSerializer.Serialize(file).Replace("\r\n", "\n", StringComparison.Ordinal);
     }
@@ -94,9 +101,9 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion is < 1 or > 11)
+        if (file.Project.SchemaVersion is < 1 or > 12)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 11.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 12.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
@@ -238,7 +245,16 @@ public static class ProjectToml
                 actualPosition,
                 OptionalNonNegative(source.ActualLengthMillimetres, $"installation_records[{objectId}].actual_length_mm"),
                 source.TestResult,
-                source.PhotoReferences ?? []));
+                source.PhotoReferences ?? [],
+                source.Revision));
+        }
+        foreach (string eventIdText in file.Sync?.AppliedEventIds ?? [])
+        {
+            if (!Guid.TryParseExact(eventIdText, "D", out Guid eventId) || eventId == Guid.Empty)
+                throw new ProjectFormatException($"Invalid sync.applied_event_ids value '{eventIdText}'.");
+            if (document.AppliedInstallationEventIds.Contains(eventId))
+                throw new ProjectFormatException($"Duplicate sync.applied_event_ids value '{eventIdText}'.");
+            document.MarkInstallationEventApplied(eventId);
         }
         ValidateReferences(document);
         return document;
@@ -403,6 +419,7 @@ public static class ProjectToml
         ActualLengthMillimetres = record.ActualLengthMillimetres,
         TestResult = record.TestResult,
         PhotoReferences = record.PhotoReferences.Count > 0 ? record.PhotoReferences.ToList() : null,
+        Revision = record.Revision,
     };
 
     private static void ValidateReferences(ProjectDocument document)
@@ -580,6 +597,14 @@ public static class ProjectToml
 
         [JsonPropertyName("installation_records")]
         public List<InstallationRecordFile> InstallationRecords { get; set; } = [];
+
+        [JsonPropertyName("sync")]
+        public SyncFile? Sync { get; set; }
+    }
+
+    private sealed class SyncFile
+    {
+        [JsonPropertyName("applied_event_ids")] public List<string> AppliedEventIds { get; set; } = [];
     }
 
     private sealed class InstallationRecordFile
@@ -592,6 +617,7 @@ public static class ProjectToml
         [JsonPropertyName("actual_length_mm")] public double? ActualLengthMillimetres { get; set; }
         [JsonPropertyName("test_result")] public string? TestResult { get; set; }
         [JsonPropertyName("photo_references")] public List<string>? PhotoReferences { get; set; }
+        [JsonPropertyName("revision")] public long Revision { get; set; }
     }
 
     private sealed class ElectricalRulesFile

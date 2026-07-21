@@ -56,7 +56,7 @@ prepare() {
 
 build() {
     say "Restoring dependencies"
-    "$EW_DOTNET" restore EutherWire.slnx --nologo
+    "$EW_DOTNET" restore EutherWire.slnx --nologo --disable-build-servers -m:1
     say "Building EutherWire"
     "$EW_DOTNET" build EutherWire.slnx --nologo --no-restore --disable-build-servers -m:1
 }

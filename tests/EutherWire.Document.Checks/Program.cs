@@ -8,6 +8,7 @@ using EutherWire.Document.Export;
 using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 using EutherWire.Document.Serialization;
+using EutherWire.Document.Synchronization;
 using EutherWire.Document.Templates;
 using EutherWire.Export;
 
@@ -284,8 +285,8 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
-Require(loaded.SchemaVersion == 11 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
-Require(loaded.ElectricalRules == ElectricalRuleProfile.Sweden2026, "Schema 11 must preserve its versioned Swedish electrical rule profile.");
+Require(loaded.SchemaVersion == 12 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.ElectricalRules == ElectricalRuleProfile.Sweden2026, "Schema 12 must preserve its versioned Swedish electrical rule profile.");
 Require(loaded.RequireCable(cableId).Electrical is { Product: CableProductKind.Cat6, Preset: CircuitPreset.Data, Conductors.Count: 4 },
     "Schema 7 must migrate legacy CAT6 into explicit data pairs.");
 Require(loaded.RequireWallDimension(dimensionId).Label == "PORTÖPPNING", "TOML must preserve wall dimensions.");
@@ -298,7 +299,7 @@ Require(loadedSourceInstallation.Status == InstallationStatus.Installed &&
         loadedSourceInstallation.ActualPosition == new Point3(120, 340, 1800) &&
         loadedSourceInstallation.TestResult == "Visual OK" &&
         loadedSourceInstallation.PhotoReferences.Single() == "photos/source-01.jpg",
-    "Schema 11 must round-trip unified installation evidence for non-cable objects.");
+    "Schema 12 must round-trip unified installation evidence for non-cable objects.");
 Require(loaded.Space.WallThicknessMillimetres == 180 && loaded.Space.CeilingThicknessMillimetres == 300, "TOML must preserve wall and ceiling construction thickness.");
 Require(loaded.RequireDevice(lightId).ElevationMillimetres == 3000 && loaded.RequireDevice(lightId).MountingSurface == MountingSurface.CeilingInterior, "TOML must preserve a light mounted on the interior ceiling.");
 
@@ -329,6 +330,61 @@ Require(legacyLoaded.RequireInstallationRecord(ObjectId.Parse("legacy-device")).
 InstallationRecord migratedCableRecord = legacyLoaded.RequireInstallationRecord(ObjectId.Parse("legacy-cable"));
 Require(migratedCableRecord.Status == InstallationStatus.Tested && migratedCableRecord.ActualLengthMillimetres == 1234,
     "Schema 10 cable status and measured length must migrate into the unified record.");
+
+var syncDocument = new ProjectDocument("Offline installation sync");
+ObjectId syncDeviceId = ObjectId.Parse("sync-outlet");
+syncDocument.Add(new Device(syncDeviceId, DeviceKind.Outlet, new Point2(500, 600), "UTT-SYNC"));
+InstallationRecord syncBase = syncDocument.RequireInstallationRecord(syncDeviceId);
+var syncDesired = new InstallationRecord(syncDeviceId, InstallationStatus.Installed, note: "Mounted from phone",
+    actualPosition: new Point3(505, 598, 1100), testResult: "Visual OK", photoReferences: ["photos/sync-outlet.jpg"]);
+var syncEvent = InstallationEvent.CreateSetRecord(syncBase, syncDesired, "phone-garage",
+    new DateTimeOffset(2026, 7, 21, 18, 0, 0, TimeSpan.Zero),
+    Guid.Parse("11111111-2222-3333-4444-555555555555"));
+string syncJson = InstallationJournal.Serialize(syncEvent);
+Require(InstallationJournal.Serialize(InstallationJournal.Deserialize(syncJson)) == syncJson,
+    "Installation journal JSONL must serialize deterministically.");
+InstallationEventApplyResult firstSync = InstallationJournal.Apply(syncDocument, syncEvent);
+Require(firstSync.Status == InstallationEventApplyStatus.Applied &&
+        syncDocument.RequireInstallationRecord(syncDeviceId).Revision == 1 &&
+        syncDocument.RequireInstallationRecord(syncDeviceId).Note == "Mounted from phone",
+    "An offline event must update the matching object revision through the installation command.");
+Require(InstallationJournal.Apply(syncDocument, syncEvent).Status == InstallationEventApplyStatus.Duplicate,
+    "Applying the same event ID twice must be harmless.");
+ProjectDocument syncReloaded = ProjectToml.Deserialize(ProjectToml.Serialize(syncDocument));
+Require(syncReloaded.AppliedInstallationEventIds.Contains(syncEvent.EventId) &&
+        InstallationJournal.Apply(syncReloaded, syncEvent).Status == InstallationEventApplyStatus.Duplicate,
+    "Applied event IDs and object revisions must survive project reload.");
+
+var conflictingDesired = new InstallationRecord(syncDeviceId, InstallationStatus.Blocked, note: "Could not access wall");
+var conflictingEvent = InstallationEvent.CreateSetRecord(syncBase, conflictingDesired, "phone-helper",
+    new DateTimeOffset(2026, 7, 21, 18, 5, 0, TimeSpan.Zero),
+    Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
+InstallationEventApplyResult conflict = InstallationJournal.Apply(syncReloaded, conflictingEvent);
+Require(conflict.Status == InstallationEventApplyStatus.Conflict &&
+        syncReloaded.RequireInstallationRecord(syncDeviceId).Status == InstallationStatus.Installed,
+    "Concurrent events from an older base revision must remain conflicts and never overwrite applied field work.");
+
+string journalTestDirectory = Path.Combine(Path.GetTempPath(), $"eutherwire-journal-{Guid.NewGuid():N}");
+Directory.CreateDirectory(journalTestDirectory);
+string journalTestPath = Path.Combine(journalTestDirectory, InstallationJournal.FileName);
+Require(InstallationJournal.AppendUnique(journalTestPath, [syncEvent, conflictingEvent]) == 2 &&
+        InstallationJournal.AppendUnique(journalTestPath, [syncEvent]) == 0 &&
+        InstallationJournal.Read(journalTestPath).Count == 2,
+    "The append-only journal must retain conflicts while refusing duplicate event IDs.");
+var collidingEvent = new InstallationEvent(syncEvent.EventId, syncEvent.ObjectId, syncEvent.BaseRevision,
+    syncEvent.Timestamp, "forged-device", syncEvent.Operation,
+    new InstallationEventPayload(InstallationStatus.Blocked, "Different content", null, null, null, []));
+bool collisionRejected = false;
+try
+{
+    InstallationJournal.AppendUnique(journalTestPath, [collidingEvent]);
+}
+catch (InvalidDataException)
+{
+    collisionRejected = true;
+}
+Require(collisionRejected, "A reused event ID with different content must be rejected instead of hidden as a duplicate.");
+Directory.Delete(journalTestDirectory, recursive: true);
 
 var electricalDocument = new ProjectDocument("Electrical conductors");
 var fkSpec = ElectricalCableProfiles.Lighting(CableProductKind.Fk, 1.5, 2);

@@ -578,7 +578,7 @@ public sealed class SetCableInstallationCommand(
         _previousRecord ??= document.RequireInstallationRecord(cableId);
         document.ReplaceInstallationRecord(new InstallationRecord(cableId, status,
             _previousRecord.UpdatedAt, _previousRecord.Note, _previousRecord.ActualPosition,
-            actualLengthMillimetres, _previousRecord.TestResult, _previousRecord.PhotoReferences));
+            actualLengthMillimetres, _previousRecord.TestResult, _previousRecord.PhotoReferences, _previousRecord.Revision + 1));
     }
 
     public void Undo(ProjectDocument document)
@@ -589,20 +589,26 @@ public sealed class SetCableInstallationCommand(
     }
 }
 
-public sealed class SetInstallationRecordCommand(InstallationRecord record) : IDocumentCommand
+public sealed class SetInstallationRecordCommand(InstallationRecord record, bool preserveRevision = false) : IDocumentCommand
 {
     private InstallationRecord? _previous;
+    private InstallationRecord? _applied;
 
     public string Description => $"Update installation record for {record.ObjectId}";
 
     public void Apply(ProjectDocument document)
     {
         _previous ??= document.RequireInstallationRecord(record.ObjectId);
-        document.ReplaceInstallationRecord(record);
+        _applied ??= preserveRevision ? record : WithRevision(record, _previous.Revision + 1);
+        document.ReplaceInstallationRecord(_applied);
     }
 
     public void Undo(ProjectDocument document) =>
         document.ReplaceInstallationRecord(_previous ?? throw new InvalidOperationException("Command has not been applied."));
+
+    private static InstallationRecord WithRevision(InstallationRecord source, long revision) => new(
+        source.ObjectId, source.Status, source.UpdatedAt, source.Note, source.ActualPosition,
+        source.ActualLengthMillimetres, source.TestResult, source.PhotoReferences, revision);
 }
 
 public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand

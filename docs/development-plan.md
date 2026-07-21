@@ -228,13 +228,15 @@ Installation mode prioritises:
 - optional laser/rangefinder and camera-assisted measurements later.
 
 The shared analysis layer now emits installation tasks with stable object IDs
-for devices, openings, conduits, and cables. Schema 11 keeps common status,
+for devices, openings, conduits, and cables. Schema 12 keeps common status,
 timestamp, note, actual position/length, test result, and photo references in
 one installation record. Desktop properties and `eutherwire tasks` consume the
 same model; the mobile UI does not need to invent a separate task database.
 
-The next mobile prerequisite is an append-only, idempotent event journal over
-these records, followed by portable snapshot import/export and conflict tests.
+The append-only JSONL event journal is implemented with unique event IDs,
+per-object base revisions, persisted idempotency, and non-destructive conflict
+reporting. The next mobile prerequisite is portable snapshot import/export,
+followed by the first phone checklist shell.
 
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets

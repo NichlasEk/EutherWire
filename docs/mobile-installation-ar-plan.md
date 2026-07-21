@@ -67,7 +67,7 @@ approaches or selects the object.
 
 ## Installation records
 
-Implemented in desktop document schema 11: every device, opening, conduit, and
+Implemented in desktop document schema 12: every device, opening, conduit, and
 cable owns an installation record addressed by its stable object ID. It
 contains:
 
@@ -83,10 +83,11 @@ test_result (optional)
 ```
 
 Calibration session IDs belong to future AR capture events rather than the
-base installation record. The next synchronization format is an append-only
-event log beside the project. Desktop code applies those events through the
-same document commands used by the inspector and CLI. This preserves
-undoability and makes conflicting offline edits detectable.
+base installation record. Synchronization now uses an append-only
+`installation-events.jsonl` beside the project. Each event carries a unique ID
+and the object revision observed by its author. Reapplying an ID is harmless;
+an event from an older revision is retained and reported as a conflict without
+overwriting current work.
 
 ## Privacy and offline operation
 
@@ -140,11 +141,11 @@ Before anchored AR is worth implementing, the remaining desktop/model work is:
 - wall elevation views and reliable room-local coordinates;
 - camera orbit and saved viewpoints;
 - exact dimensions and corner offsets;
-- a portable project snapshot plus installation-event interchange format.
+- a portable project snapshot format.
 
 Doors and garage doors, wall elevations, reliable room-local coordinates, exact
 dimensions, and orbit navigation are already present. Saved viewpoints and the
-event interchange format remain prerequisites.
+portable snapshot remain prerequisites.
 
 ## First acceptance target
 

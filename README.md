@@ -172,6 +172,8 @@ dotnet run --project src/EutherWire.Cli -- delete-vertex examples/garage.eutherw
 dotnet run --project src/EutherWire.Cli -- configure examples/garage.eutherwire 10 1000
 dotnet run --project src/EutherWire.Cli -- install examples/garage.eutherwire camera-north-cat6 tested 8200
 dotnet run --project src/EutherWire.Cli -- install examples/garage.eutherwire camera-north installed
+dotnet run --project src/EutherWire.Cli -- journal-create examples/garage.eutherwire phone-events.jsonl camera-north phone-garage installed
+dotnet run --project src/EutherWire.Cli -- journal-apply examples/garage.eutherwire phone-events.jsonl
 dotnet run --project src/EutherWire.Cli -- export-svg examples/garage.eutherwire garage.svg
 dotnet run --project src/EutherWire.Cli -- export-png examples/garage.eutherwire garage.png
 ```
@@ -184,9 +186,12 @@ Geometry and properties both have stable semantic addresses. For example,
 `camera-north-pipe:vertex:1` moves a route point while
 `camera-north-cat6:property:actual_length_mm` edits installation data through
 the same undoable command layer used by the desktop UI.
-Schema 11 stores one installation record per device, opening, conduit, and
+Schema 12 stores one revisioned installation record per device, opening, conduit, and
 cable, including optional timestamp, field position, note, test result, and
-photo references. See [installation-records.md](docs/installation-records.md).
+photo references. Offline updates use the append-only
+`installation-events.jsonl`; duplicate event IDs are harmless and stale base
+revisions become visible conflicts. See
+[installation-records.md](docs/installation-records.md).
 
 SVG and PNG exports are generated directly from document coordinates with stable object
 IDs and deterministic ordering. It is independent of the current desktop zoom,

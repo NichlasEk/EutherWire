@@ -3,7 +3,7 @@ wall_dimensions = []
 [project]
 name = "Garage Draft"
 units = "mm"
-schema_version = 11
+schema_version = 12
 cable_slack_percent = 10.0
 service_loop_mm = 1000.0
 [electrical_rules]
@@ -19,6 +19,8 @@ depth_mm = 6000.0
 height_mm = 2800.0
 wall_thickness_mm = 200.0
 ceiling_thickness_mm = 250.0
+[sync]
+applied_event_ids = []
 [[openings]]
 id = "garage-door-south"
 kind = "garage_door"
@@ -117,23 +119,29 @@ area_mm2 = 0.2
 [[installation_records]]
 object_id = "camera-north"
 status = "planned"
+revision = 0
 
 [[installation_records]]
 object_id = "camera-north-cat6"
 status = "planned"
+revision = 0
 
 [[installation_records]]
 object_id = "camera-north-pipe"
 status = "planned"
+revision = 0
 
 [[installation_records]]
 object_id = "garage-door-south"
 status = "planned"
+revision = 0
 
 [[installation_records]]
 object_id = "main-board"
 status = "planned"
+revision = 0
 
 [[installation_records]]
 object_id = "poe-switch"
 status = "planned"
+revision = 0

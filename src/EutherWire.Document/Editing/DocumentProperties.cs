@@ -166,21 +166,22 @@ public static class DocumentProperties
             previous.ActualPosition,
             previous.ActualLengthMillimetres,
             previous.TestResult,
-            previous.PhotoReferences));
+            previous.PhotoReferences,
+            previous.Revision));
     }
 
     private static IDocumentCommand UpdateInstallationNote(ProjectDocument document, ObjectId id, string note)
     {
         InstallationRecord previous = document.RequireInstallationRecord(id);
         return new SetInstallationRecordCommand(new InstallationRecord(id, previous.Status, DateTimeOffset.UtcNow,
-            note, previous.ActualPosition, previous.ActualLengthMillimetres, previous.TestResult, previous.PhotoReferences));
+            note, previous.ActualPosition, previous.ActualLengthMillimetres, previous.TestResult, previous.PhotoReferences, previous.Revision));
     }
 
     private static IDocumentCommand UpdateInstallationLength(ProjectDocument document, ObjectId id, double? actualLengthMillimetres)
     {
         InstallationRecord previous = document.RequireInstallationRecord(id);
         return new SetInstallationRecordCommand(new InstallationRecord(id, previous.Status, DateTimeOffset.UtcNow,
-            previous.Note, previous.ActualPosition, actualLengthMillimetres, previous.TestResult, previous.PhotoReferences));
+            previous.Note, previous.ActualPosition, actualLengthMillimetres, previous.TestResult, previous.PhotoReferences, previous.Revision));
     }
 
     private static void AddVertexElevations(List<DocumentProperty> properties, ObjectId id, EutherWire.Document.Geometry.Polyline route)

@@ -9,6 +9,7 @@ public sealed class ProjectDocument
     private readonly Dictionary<ObjectId, BuildingOpening> _openings = [];
     private readonly Dictionary<ObjectId, WallDimension> _wallDimensions = [];
     private readonly Dictionary<ObjectId, InstallationRecord> _installationRecords = [];
+    private readonly HashSet<Guid> _appliedInstallationEventIds = [];
 
     public ProjectDocument(string name)
     {
@@ -16,7 +17,7 @@ public sealed class ProjectDocument
         Name = name;
     }
 
-    public int SchemaVersion => 11;
+    public int SchemaVersion => 12;
     public string Name { get; set; }
     public PlanningSettings Planning { get; internal set; } = new();
     public ElectricalRuleProfile ElectricalRules { get; internal set; } = ElectricalRuleProfile.Sweden2026;
@@ -28,6 +29,7 @@ public sealed class ProjectDocument
     public IReadOnlyDictionary<ObjectId, BuildingOpening> Openings => _openings;
     public IReadOnlyDictionary<ObjectId, WallDimension> WallDimensions => _wallDimensions;
     public IReadOnlyDictionary<ObjectId, InstallationRecord> InstallationRecords => _installationRecords;
+    public IReadOnlySet<Guid> AppliedInstallationEventIds => _appliedInstallationEventIds;
 
     public void Add(Device device)
     {
@@ -137,6 +139,12 @@ public sealed class ProjectDocument
         _installationRecords[record.ObjectId] = record;
         if (_cables.TryGetValue(record.ObjectId, out CableRoute? cable))
             _cables[record.ObjectId] = cable with { InstallationStatus = record.Status, ActualLengthMillimetres = record.ActualLengthMillimetres };
+    }
+
+    internal void MarkInstallationEventApplied(Guid eventId)
+    {
+        if (eventId == Guid.Empty) throw new ArgumentException("Event ID cannot be empty.", nameof(eventId));
+        _appliedInstallationEventIds.Add(eventId);
     }
 
     internal bool RemoveDevice(ObjectId id, out Device? device) => RemoveInstallable(_devices, id, out device);

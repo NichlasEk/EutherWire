@@ -6,6 +6,7 @@ using EutherWire.Document.Export;
 using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 using EutherWire.Document.Serialization;
+using EutherWire.Document.Synchronization;
 using EutherWire.Document.Templates;
 using EutherWire.Export;
 
@@ -84,6 +85,10 @@ static int Run(string[] arguments)
             return Configure(projectDirectory, arguments[2], arguments[3]);
         case "install" when arguments.Length is 4 or 5:
             return Install(projectDirectory, arguments[2], arguments[3], arguments.Length == 5 ? arguments[4] : null);
+        case "journal-create" when arguments.Length is 6 or 7:
+            return JournalCreate(projectDirectory, arguments[2], arguments[3], arguments[4], arguments[5], arguments.Length == 7 ? arguments[6] : null);
+        case "journal-apply" when arguments.Length == 3:
+            return JournalApply(projectDirectory, arguments[2]);
         default:
             Usage();
             return 1;
@@ -126,14 +131,67 @@ static int Install(string projectDirectory, string objectText, string statusText
         : double.Parse(actualLengthText, NumberStyles.Float, CultureInfo.InvariantCulture);
     ProjectDocument document = ProjectToml.Load(projectDirectory);
     InstallationRecord previous = document.RequireInstallationRecord(objectId);
-    var history = new CommandHistory();
-    history.Execute(document, new SetInstallationRecordCommand(new InstallationRecord(
+    var desired = new InstallationRecord(
         objectId, status, DateTimeOffset.UtcNow, previous.Note, previous.ActualPosition,
-        actualLength ?? previous.ActualLengthMillimetres, previous.TestResult, previous.PhotoReferences)));
+        actualLength ?? previous.ActualLengthMillimetres, previous.TestResult, previous.PhotoReferences, previous.Revision);
+    InstallationEvent installationEvent = InstallationEvent.CreateSetRecord(previous, desired, "desktop-cli");
+    InstallationEventApplyResult result = InstallationJournal.Apply(document, installationEvent);
+    if (result.Status != InstallationEventApplyStatus.Applied) throw new InvalidOperationException(result.Message);
     ProjectToml.Save(projectDirectory, document);
+    InstallationJournal.AppendUnique(Path.Combine(projectDirectory, InstallationJournal.FileName), [installationEvent]);
     InstallationRecord updated = document.RequireInstallationRecord(objectId);
     Console.WriteLine($"Installation: {objectId} kind={document.RequireInstallationObjectKind(objectId).ToString().ToLowerInvariant()} status={status} actual_length_mm={(updated.ActualLengthMillimetres?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown")}");
     return 0;
+}
+
+static int JournalCreate(string projectDirectory, string outputPath, string objectText, string authorDeviceId, string statusText, string? actualLengthText)
+{
+    ObjectId objectId = ObjectId.Parse(objectText);
+    if (!Enum.TryParse(statusText, true, out InstallationStatus status))
+        throw new ArgumentException($"Unknown installation status '{statusText}'.");
+    double? actualLength = actualLengthText is null
+        ? null
+        : double.Parse(actualLengthText, NumberStyles.Float, CultureInfo.InvariantCulture);
+    ProjectDocument document = ProjectToml.Load(projectDirectory);
+    InstallationRecord current = document.RequireInstallationRecord(objectId);
+    var desired = new InstallationRecord(objectId, status, current.UpdatedAt, current.Note, current.ActualPosition,
+        actualLength ?? current.ActualLengthMillimetres, current.TestResult, current.PhotoReferences, current.Revision);
+    InstallationEvent installationEvent = InstallationEvent.CreateSetRecord(current, desired, authorDeviceId);
+    InstallationJournal.AppendUnique(outputPath, [installationEvent]);
+    Console.WriteLine($"Created event {installationEvent.EventId:D} object={objectId} base_revision={installationEvent.BaseRevision} output={Path.GetFullPath(outputPath)}");
+    return 0;
+}
+
+static int JournalApply(string projectDirectory, string incomingPath)
+{
+    ProjectDocument document = ProjectToml.Load(projectDirectory);
+    IReadOnlyList<InstallationEvent> incoming = InstallationJournal.Read(incomingPath);
+    string localJournalPath = Path.Combine(projectDirectory, InstallationJournal.FileName);
+    Dictionary<Guid, InstallationEvent> localEvents = InstallationJournal.Read(localJournalPath).ToDictionary(item => item.EventId);
+    var collisionIds = new HashSet<Guid>();
+    var results = incoming.Select(installationEvent =>
+    {
+        if (localEvents.TryGetValue(installationEvent.EventId, out InstallationEvent? existing) &&
+            !string.Equals(InstallationJournal.Serialize(existing), InstallationJournal.Serialize(installationEvent), StringComparison.Ordinal))
+        {
+            collisionIds.Add(installationEvent.EventId);
+            return new InstallationEventApplyResult(installationEvent, InstallationEventApplyStatus.Conflict,
+                "Event ID already exists locally with different content.");
+        }
+        return InstallationJournal.Apply(document, installationEvent);
+    }).ToList();
+    if (results.Any(result => result.Status == InstallationEventApplyStatus.Applied)) ProjectToml.Save(projectDirectory, document);
+    IEnumerable<InstallationEvent> retainable = results
+        .Where(result => !collisionIds.Contains(result.Event.EventId))
+        .Select(result => result.Event);
+    int appended = InstallationJournal.AppendUnique(localJournalPath, retainable);
+    foreach (InstallationEventApplyResult result in results)
+        Console.WriteLine($"{result.Status.ToString().ToLowerInvariant()}\t{result.Event.EventId:D}\t{result.Event.ObjectId}\t{result.Message}");
+    int applied = results.Count(result => result.Status == InstallationEventApplyStatus.Applied);
+    int duplicates = results.Count(result => result.Status == InstallationEventApplyStatus.Duplicate);
+    int conflicts = results.Count(result => result.Status == InstallationEventApplyStatus.Conflict);
+    Console.WriteLine($"Journal: applied={applied} duplicates={duplicates} conflicts={conflicts} appended={appended}");
+    return conflicts > 0 ? 4 : 0;
 }
 
 static int InsertVertex(string projectDirectory, string routeText, string indexText, string xText, string yText)
@@ -268,4 +326,6 @@ static void Usage()
     Console.Error.WriteLine("  eutherwire delete-vertex <project.eutherwire> <route-id> <index>");
     Console.Error.WriteLine("  eutherwire configure <project.eutherwire> <slack-percent> <service-loop-mm>");
     Console.Error.WriteLine("  eutherwire install <project.eutherwire> <object-id> <planned|installed|tested|changed|blocked> [actual-length-mm]");
+    Console.Error.WriteLine("  eutherwire journal-create <project.eutherwire> <output.jsonl> <object-id> <author-device-id> <status> [actual-length-mm]");
+    Console.Error.WriteLine("  eutherwire journal-apply <project.eutherwire> <incoming.jsonl>");
 }
