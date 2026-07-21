@@ -904,6 +904,21 @@ internal sealed class EutherWireApplication : IForgeApplication
                 SetConduitDiameter(conduit, 1);
                 return true;
             }
+            if (_document.Conduits.TryGetValue(selected, out conduit) && ConduitMethodPreviousRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                CycleConduitInstallationMethod(conduit, -1);
+                return true;
+            }
+            if (_document.Conduits.TryGetValue(selected, out conduit) && ConduitMethodNextRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                CycleConduitInstallationMethod(conduit, 1);
+                return true;
+            }
+            if (_document.Conduits.TryGetValue(selected, out conduit) && ConduitContentsRect(inspectorX).Contains(pointer.X, pointer.Y))
+            {
+                OpenContainedCable(conduit);
+                return true;
+            }
             if (!_electricalInspectorOpen && AddVertexRect(inspectorX).Contains(pointer.X, pointer.Y) && TryGetEditableRoute(selected, out Polyline? addRoute))
             {
                 AddRouteVertex(selected, addRoute!);
@@ -1139,6 +1154,30 @@ internal sealed class EutherWireApplication : IForgeApplication
         }
         int index = (current + direction + products.Count) % products.Count;
         return products[index];
+    }
+
+    private void CycleConduitInstallationMethod(Conduit conduit, int direction)
+    {
+        InstallationMethod method = AdjacentEnum(conduit.InstallationMethod, direction);
+        _history.Execute(_document, new SetConduitInstallationMethodCommand(conduit.Id, method));
+        _dirty = true;
+        _statusMessage = $"Installation method: {InstallationMethodLabel(method)}";
+    }
+
+    private void OpenContainedCable(Conduit conduit)
+    {
+        CableRoute? cable = _document.Cables.Values
+            .Where(item => item.ConduitId == conduit.Id)
+            .OrderBy(item => item.Id.Value, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (cable is null)
+        {
+            _statusMessage = $"Conduit {conduit.Label} is empty";
+            return;
+        }
+        SelectOnly(cable.Id);
+        SyncSelectedLabelEditor();
+        _statusMessage = $"Selected contained cable {cable.Label}";
     }
 
     private bool TryGetEditableRoute(ObjectId id, out Polyline? route)
@@ -2621,6 +2660,14 @@ internal sealed class EutherWireApplication : IForgeApplication
                 _statusMessage = "Inner diameter must be greater than zero";
                 SyncSelectedLabelEditor();
             }
+            InstallationMethod previousMethod = AdjacentEnum(conduit.InstallationMethod, -1);
+            InstallationMethod nextMethod = AdjacentEnum(conduit.InstallationMethod, 1);
+            canvas.DrawText(inspectorX + 18, 458, $"INSTALL  {InstallationMethodLabel(conduit.InstallationMethod)}", 0xff9eb0bb);
+            DrawChromeButton(canvas, ConduitMethodPreviousRect(inspectorX), InstallationMethodLabel(previousMethod), true);
+            DrawChromeButton(canvas, ConduitMethodNextRect(inspectorX), InstallationMethodLabel(nextMethod), true);
+            ConduitLoad load = ProjectAnalyzer.Analyze(_document).ConduitLoads.Single(item => item.ConduitId == conduit.Id);
+            canvas.DrawText(inspectorX + 18, 528, $"{load.CableCount} CABLE / {load.ConductorCount} WIRES", 0xff9eb0bb);
+            DrawChromeButton(canvas, ConduitContentsRect(inspectorX), "OPEN CABLE", load.CableCount > 0);
         }
         else if (opening is not null)
         {
@@ -2679,7 +2726,7 @@ internal sealed class EutherWireApplication : IForgeApplication
             ConductorFunction.Spare => "RES",
             _ => item.Id.ToUpperInvariant(),
         }));
-        if (conductorSummary.Length > 15) conductorSummary = conductorSummary[..14] + "…";
+        if (conductorSummary.Length > 15) conductorSummary = conductorSummary[..12] + "...";
         canvas.DrawText(inspectorX + 72, 392, conductorSummary, 0xffc7d4dc);
 
         canvas.DrawText(inspectorX + 18, 414, "IB A", 0xff9eb0bb);
@@ -2969,6 +3016,16 @@ internal sealed class EutherWireApplication : IForgeApplication
         _ => kind.ToString().ToUpperInvariant(),
     };
 
+    private static string InstallationMethodLabel(InstallationMethod method) => method switch
+    {
+        InstallationMethod.Unknown => "UNKNOWN",
+        InstallationMethod.Surface => "SURFACE",
+        InstallationMethod.Concealed => "CONCEALED",
+        InstallationMethod.Buried => "BURIED",
+        InstallationMethod.CableTray => "TRAY",
+        _ => method.ToString().ToUpperInvariant(),
+    };
+
     private static ElectricalCableSpec WithDesign(ElectricalCableSpec electrical, CircuitDesign design) =>
         new(electrical.Product, electrical.Preset, electrical.Conductors, electrical.Shielding,
             electrical.PoeCapable, electrical.OutsideDiameterMillimetres, design);
@@ -3070,6 +3127,9 @@ internal sealed class EutherWireApplication : IForgeApplication
     private static RectI StatusMinusRect(int inspectorX) => new(inspectorX + 18, 476, 48, 30);
     private static RectI StatusPlusRect(int inspectorX) => new(inspectorX + 76, 476, 48, 30);
     private static RectI ActualLengthRect(int inspectorX) => new(inspectorX + 134, 476, 104, 30);
+    private static RectI ConduitMethodPreviousRect(int inspectorX) => new(inspectorX + 18, 476, 104, 30);
+    private static RectI ConduitMethodNextRect(int inspectorX) => new(inspectorX + 134, 476, 104, 30);
+    private static RectI ConduitContentsRect(int inspectorX) => new(inspectorX + 134, 516, 104, 30);
     private static RectI ElevationMinusRect(int inspectorX) => new(inspectorX + 18, 520, 104, 30);
     private static RectI ElevationPlusRect(int inspectorX) => new(inspectorX + 134, 520, 104, 30);
     private static RectI DiagnosticRect(int inspectorX, int index) => new(inspectorX + 18, 700 + index * 30, 220, 24);

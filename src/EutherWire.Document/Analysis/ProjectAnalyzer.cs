@@ -30,6 +30,14 @@ public sealed record ConduitFill(
     int KnownConductorCount = 0,
     int UnknownConductorCount = 0);
 
+public sealed record ConduitLoad(
+    ObjectId ConduitId,
+    int CableCount,
+    int PowerCircuitCount,
+    int ConductorCount,
+    int KnownLoadedConductorCount,
+    int UnknownLoadedCircuitCount);
+
 public enum DesignCheckStatus { Pass, Warning, Unknown }
 
 public sealed record ElectricalDesignCheck(
@@ -57,6 +65,7 @@ public sealed record ProjectAnalysis(
     double TotalConduitLengthMillimetres,
     IReadOnlyList<MaterialItem> Materials,
     IReadOnlyList<ConduitFill> ConduitFills,
+    IReadOnlyList<ConduitLoad> ConduitLoads,
     IReadOnlyList<ElectricalDesignCheck> ElectricalDesignChecks,
     IReadOnlyList<InstallationTask> InstallationTasks,
     IReadOnlyList<ProjectDiagnostic> Diagnostics)
@@ -94,10 +103,13 @@ public static class ProjectAnalyzer
         }
 
         var fills = new List<ConduitFill>();
+        var loads = new List<ConduitLoad>();
         foreach (Conduit conduit in document.Conduits.Values.OrderBy(conduit => conduit.Id.ToString(), StringComparer.Ordinal))
         {
             ConduitFill fill = CalculateFill(document, conduit);
             fills.Add(fill);
+            ConduitLoad load = CalculateLoad(document, conduit);
+            loads.Add(load);
             if (fill.FillRatio > FillWarningRatio)
             {
                 diagnostics.Add(new ProjectDiagnostic(
@@ -114,6 +126,30 @@ public static class ProjectAnalyzer
                     DiagnosticSeverity.Info,
                     conduit.Id,
                     $"Conduit '{conduit.Label}' contains {unknownFillItems} cable(s) or conductor(s) without a known outside diameter."));
+            }
+            if (load.PowerCircuitCount > 0 && conduit.InstallationMethod == InstallationMethod.Unknown)
+            {
+                diagnostics.Add(new ProjectDiagnostic(
+                    "conduit.installation_method.unknown",
+                    DiagnosticSeverity.Info,
+                    conduit.Id,
+                    $"Conduit '{conduit.Label}' contains power conductors but has no installation method for thermal assessment."));
+            }
+            if (load.PowerCircuitCount > 1)
+            {
+                diagnostics.Add(new ProjectDiagnostic(
+                    "conduit.power_circuits.grouped",
+                    DiagnosticSeverity.Warning,
+                    conduit.Id,
+                    $"Conduit '{conduit.Label}' contains {load.PowerCircuitCount} power circuits; grouping correction must be verified."));
+            }
+            if (load.UnknownLoadedCircuitCount > 0)
+            {
+                diagnostics.Add(new ProjectDiagnostic(
+                    "conduit.loaded_conductors.unknown",
+                    DiagnosticSeverity.Info,
+                    conduit.Id,
+                    $"Conduit '{conduit.Label}' has {load.UnknownLoadedCircuitCount} power circuit(s) without a confirmed loaded-conductor count."));
             }
         }
 
@@ -133,6 +169,7 @@ public static class ProjectAnalyzer
             conduitLength,
             BuildMaterials(document),
             fills,
+            loads,
             designChecks,
             BuildInstallationTasks(document),
             diagnostics);
@@ -361,6 +398,25 @@ public static class ProjectAnalyzer
             ? occupiedDiameterSquared / (conduit.InnerDiameterMillimetres * conduit.InnerDiameterMillimetres)
             : 0;
         return new ConduitFill(conduit.Id, ratio, known, unknown, knownConductors, unknownConductors);
+    }
+
+    private static ConduitLoad CalculateLoad(ProjectDocument document, Conduit conduit)
+    {
+        CableRoute[] cables = document.Cables.Values.Where(cable => cable.ConduitId == conduit.Id).ToArray();
+        int powerCircuits = 0;
+        int conductorCount = 0;
+        int knownLoaded = 0;
+        int unknownLoaded = 0;
+        foreach (CableRoute cable in cables)
+        {
+            ElectricalCableSpec electrical = cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind);
+            conductorCount += electrical.Conductors.Count;
+            if (electrical.Preset is CircuitPreset.Data or CircuitPreset.Custom) continue;
+            powerCircuits++;
+            if (electrical.Design?.LoadedConductorCount is int loaded) knownLoaded += loaded;
+            else unknownLoaded++;
+        }
+        return new ConduitLoad(conduit.Id, cables.Length, powerCircuits, conductorCount, knownLoaded, unknownLoaded);
     }
 
     private static IReadOnlyList<ElectricalDesignCheck> BuildElectricalDesignChecks(ProjectDocument document, List<ProjectDiagnostic> diagnostics)

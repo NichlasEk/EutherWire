@@ -520,6 +520,26 @@ public sealed class SetConduitProductCommand(ObjectId conduitId, ConduitProduct 
     }
 }
 
+public sealed class SetConduitInstallationMethodCommand(ObjectId conduitId, InstallationMethod installationMethod) : IDocumentCommand
+{
+    private InstallationMethod? _previous;
+
+    public string Description => $"Set {conduitId} installation method";
+
+    public void Apply(ProjectDocument document)
+    {
+        Conduit conduit = document.RequireConduit(conduitId);
+        _previous ??= conduit.InstallationMethod;
+        document.Replace(conduit with { InstallationMethod = installationMethod });
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        Conduit conduit = document.RequireConduit(conduitId);
+        document.Replace(conduit with { InstallationMethod = _previous ?? throw new InvalidOperationException("Command has not been applied.") });
+    }
+}
+
 public sealed class SetPlanningSettingsCommand(PlanningSettings settings) : IDocumentCommand
 {
     private PlanningSettings? _previous;

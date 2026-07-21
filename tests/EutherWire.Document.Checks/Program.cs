@@ -345,6 +345,28 @@ Require(sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical == repl
     "Electrical profile edits must use the undoable command layer.");
 Require(sizingHistory.Undo(sizingLoaded) && sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical!.Design is not null,
     "Undo must restore the complete electrical design.");
+ConduitLoad sizingLoad = ProjectAnalyzer.Analyze(sizingLoaded).ConduitLoads.Single();
+Require(sizingLoad is { CableCount: 1, PowerCircuitCount: 1, ConductorCount: 3, KnownLoadedConductorCount: 2, UnknownLoadedCircuitCount: 0 },
+    "Conduit analysis must distinguish cables, power circuits, physical conductors, and loaded conductors.");
+var secondSizedFk = new ElectricalCableSpec(CableProductKind.Fk, CircuitPreset.SinglePhase,
+    [
+        new("l1", ConductorFunction.Line1, "brown", 2.5, 3.4),
+        new("n", ConductorFunction.Neutral, "blue", 2.5, 3.4),
+        new("pe", ConductorFunction.ProtectiveEarth, "green_yellow", 2.5, 3.4),
+    ], design: new CircuitDesign(230, 1, loadedConductorCount: 2));
+sizingLoaded.Add(new CableRoute(ObjectId.Parse("fk-group-2"), "UTTAG-2", CableKind.Custom, sizingRoute,
+    ConduitId: sizingConduitId, Electrical: secondSizedFk));
+ProjectAnalysis groupedAnalysis = ProjectAnalyzer.Analyze(sizingLoaded);
+Require(groupedAnalysis.ConduitLoads.Single() is { PowerCircuitCount: 2, ConductorCount: 6, KnownLoadedConductorCount: 4 },
+    "Shared conduits must aggregate every contained power circuit.");
+Require(groupedAnalysis.Diagnostics.Any(item => item.Code == "conduit.power_circuits.grouped" && item.Severity == DiagnosticSeverity.Warning),
+    "Multiple power circuits in one conduit need a visible grouping warning.");
+var methodHistory = new CommandHistory();
+methodHistory.Execute(sizingLoaded, new SetConduitInstallationMethodCommand(sizingConduitId, InstallationMethod.Surface));
+Require(sizingLoaded.RequireConduit(sizingConduitId).InstallationMethod == InstallationMethod.Surface,
+    "Conduit installation-method edits must use commands.");
+Require(methodHistory.Undo(sizingLoaded) && sizingLoaded.RequireConduit(sizingConduitId).InstallationMethod == InstallationMethod.Concealed,
+    "Conduit installation-method edits must be undoable.");
 ElectricalProductCatalog productCatalog = ElectricalProductCatalog.Load(Path.Combine("catalog", "electrical-products.toml"));
 Require(productCatalog.Conduits.Select(item => item.NominalDiameterMillimetres).SequenceEqual([16d, 20d, 25d]),
     "The initial Swedish conduit catalog must stay focused on 16, 20, and 25 mm products.");
@@ -411,6 +433,8 @@ PropertyHandleId statusPropertyId = PropertyHandleId.Parse("camera-north-cat6:pr
 IReadOnlyList<DocumentProperty> garageProperties = DocumentProperties.Enumerate(garageDocument);
 Require(garageProperties.Any(property => property.Id == statusPropertyId && property.Value == "planned"), "Objects need stable semantic property handles.");
 Require(garageProperties.Any(property => property.Id.ToString() == "camera-north-pipe:property:inner_diameter_mm"), "Conduit dimensions need property handles.");
+Require(garageProperties.Any(property => property.Id.ToString() == "camera-north-pipe:property:installation_method" && property.Value == "concealed"),
+    "Conduit installation methods need stable property handles.");
 Require(garageProperties.Any(property => property.Id.ToString() == "camera-north:property:elevation_mm" && property.Value == "2200"), "Device elevation needs a property handle.");
 Require(garageProperties.Any(property => property.Id.ToString() == "camera-north:property:mounting_surface"), "Devices need a semantic mounting-surface handle.");
 PropertyHandleId roomWidthId = PropertyHandleId.Parse("space:property:width_mm");

@@ -61,9 +61,16 @@ and final electrician verification remain required future checks.
 
 ## Desktop workflow
 
-Select a conduit to choose its nominal product size with `-` and `+`, then type
+Select a conduit and use the named `16MM`, `20MM`, or `25MM` choice buttons, then type
 the manufacturer's actual inner diameter in `INNER MM`. The latter is the only
 diameter used for physical fill.
+
+The conduit inspector also selects installation method and summarizes contained
+cables, explicit conductors, power circuits, and confirmed loaded conductors.
+`OPEN CABLE` jumps from the conduit to its first contained cable. Multiple power
+circuits in one conduit always produce a grouping warning, while a power circuit
+without a confirmed loaded-conductor count or installation method stays visibly
+incomplete.
 
 Select a cable and press `DESIGN` to open the sizing page. The profile arrows
 currently offer CAT6, EKRK 3G2.5, EKRK 5G6, FK 3G1.5, FK 3G2.5, FK 5G2.5, and

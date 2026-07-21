@@ -93,6 +93,7 @@ public static class DocumentProperties
                 new PropertyHandleId(conduit.Id, "nominal_diameter_mm"),
                 PropertyValueKind.Number,
                 conduit.NominalDiameterMillimetres?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown"));
+            properties.Add(Choice(conduit.Id, "installation_method", conduit.InstallationMethod));
             AddVertexElevations(properties, conduit.Id, conduit.Route);
         }
         foreach (Annotation annotation in document.Annotations.Values)
@@ -133,6 +134,8 @@ public static class DocumentProperties
             "nominal_diameter_mm" => new SetConduitNominalDiameterCommand(
                 id.ObjectId,
                 ParsePositive(value)),
+            "installation_method" when document.Conduits.ContainsKey(id.ObjectId) =>
+                new SetConduitInstallationMethodCommand(id.ObjectId, ParseChoice<InstallationMethod>(value)),
             _ when TryParseVertexElevation(id.Name, out int vertexIndex) =>
                 new SetRouteVertexElevationCommand(id.ObjectId, vertexIndex, ParseNonNegative(value)),
             _ when id.ObjectId == ObjectId.Parse("space") => CreateSpaceCommand(document, id.Name, value),

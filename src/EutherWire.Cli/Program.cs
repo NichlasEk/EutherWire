@@ -213,7 +213,8 @@ static int PrintReport(ProjectDocument document)
     Console.WriteLine("Conduit fill (mechanical planning check):");
     foreach (ConduitFill fill in analysis.ConduitFills)
     {
-        Console.WriteLine($"  {fill.ConduitId}\t{fill.FillRatio.ToString("P1", CultureInfo.InvariantCulture)}\tcables={fill.KnownCableCount} conductors={fill.KnownConductorCount} unknown={fill.UnknownCableCount + fill.UnknownConductorCount}");
+        ConduitLoad load = analysis.ConduitLoads.Single(item => item.ConduitId == fill.ConduitId);
+        Console.WriteLine($"  {fill.ConduitId}\t{fill.FillRatio.ToString("P1", CultureInfo.InvariantCulture)}\tcables={load.CableCount} circuits={load.PowerCircuitCount} conductors={load.ConductorCount} loaded={load.KnownLoadedConductorCount} unknown_loaded={load.UnknownLoadedCircuitCount} unknown_diameter={fill.UnknownCableCount + fill.UnknownConductorCount}");
     }
     Console.WriteLine($"Electrical sizing ({document.ElectricalRules.Id}):");
     foreach (ElectricalDesignCheck check in analysis.ElectricalDesignChecks)

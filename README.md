@@ -205,6 +205,8 @@ correction factors, and a traceable reference capacity are supplied. See
 The desktop cable inspector exposes this through its `DESIGN` page; conduit
 controls keep nominal product size separate from the manufacturer-specified
 inner diameter used by the fill calculation.
+The conduit inspector additionally exposes installation method and contained
+cable/conductor load; shared power circuits trigger an explicit grouping check.
 
 ## Product principles
 
