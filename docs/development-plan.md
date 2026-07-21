@@ -240,12 +240,13 @@ canonical project, journal, and referenced evidence with integrity checks. The
 data-layer prerequisites are complete. The native Android M1 checklist now
 imports snapshots, persists/filter tasks, edits status/notes/actual lengths
 offline, recovers pending events, and exports JSONL for desktop merge. Physical
-device testing remains the first verification step. The next product slice is
-the mobile Survey shell: select Survey, Design, or Install; enter room length,
-width, wall height, ceiling, and wall thickness; then place measured doors,
-garage doors, windows, passages, penetrations, and service entries before any
-new installation is designed. Project-linked photo capture and camera/gyro
-guidance follow that shared measured baseline.
+device testing remains the first verification step. The mobile Survey shell is
+now implemented with Survey, Design, and Install modes; numeric room, wall, and
+ceiling dimensions; fixed openings by wall/offset/sill; and portable project
+export. Measured openings immediately appear as installation tasks. The next
+slice is a touch-driven 2D/3D review of that measured shell before placement of
+new installation objects. Project-linked photo capture and camera/gyro guidance
+follow that shared measured baseline.
 
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets

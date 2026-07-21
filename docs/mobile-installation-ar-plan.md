@@ -135,12 +135,15 @@ synchronize when a local EutherWire host becomes reachable again.
 
 ### M1.5: Survey shell
 
-- mode selector for Survey, Design, and Install;
-- create a room from length, width, wall height, and wall thickness;
-- place doors, garage doors, windows, passages, and penetrations on a selected
+- implemented: mode selector for Survey, Design, and Install;
+- implemented: create a room from length, width, wall height, wall thickness,
+  and ceiling thickness;
+- implemented: place doors, garage doors, windows, and penetrations on a selected
   wall using exact width, height, sill, and corner offset;
-- show a reviewable 2D/3D shell and a survey completeness checklist;
-- save through the shared command/document model and portable snapshot format.
+- implemented: survey completeness checklist and full portable snapshot export;
+- implemented: save through the shared command/document model so measured
+  openings immediately become installation tasks;
+- next: show the measured room as a reviewable touch-driven 2D/3D shell.
 
 ### M2: Camera orientation preview
 

@@ -204,7 +204,10 @@ staged project into place. See
 
 The first native Android checklist imports those snapshots, lists every
 installable object, edits status/note/actual length offline, recovers pending
-events after interruption, and exports JSONL for conflict-aware desktop merge:
+events after interruption, and exports JSONL for conflict-aware desktop merge.
+It also starts a measured project on the phone through explicit Survey,
+Design, and Install modes: numeric room construction, wall-mounted fixed
+openings, and full project snapshot export share the desktop document model.
 
 ```sh
 ./eutherwire.sh mobile-build

@@ -14,15 +14,23 @@ newer, and optionally `adb`. On the current development machine:
 ./eutherwire.sh mobile-install
 ```
 
-The first command builds a release-mode ARM64 test APK, signs it with the
-machine's stable Android debug key, verifies the APK signature with Android's
-own `apksigner`, and prints the path. `mobile-install` installs it on the
-USB-connected device. Android's normal APK sideloading also works. This test
-signature is suitable for direct installation and repeatable updates from this
-development machine; a protected EutherWire release key replaces it before a
-public production release.
+The first command builds a complete ARM64 test APK with all managed runtime
+assemblies embedded, signs it with the machine's stable Android debug key,
+verifies the APK signature with Android's own `apksigner`, and prints the path.
+`mobile-install` installs it on the USB-connected device. Android's normal APK
+sideloading also works. The complete package is intentionally larger than an
+optimized store build, but is the reliable field-test artifact. This test
+signature supports repeatable updates from this development machine; a
+protected EutherWire release key replaces it before production distribution.
 
 ## Field workflow
+
+The app opens in `SURVEY`. A new project can be measured directly on the phone:
+enter room length, width, wall height, wall thickness, and ceiling thickness,
+then add each door, garage door, window, and penetration by wall, corner offset,
+sill, width, and height. `EXPORT PROJECT` writes a complete portable snapshot
+that opens in the desktop app. Every measured opening uses the shared document
+model and therefore also appears automatically under `INSTALL`.
 
 1. On desktop, create a snapshot:
 
@@ -53,7 +61,8 @@ reported as conflicts instead of overwriting another installer's work.
 ## Current M1 boundary
 
 M1 contains snapshot import, persistent task overview, filters, task details,
-offline status/note/length editing, recovery, and event export. It deliberately
-has no camera, gyroscope, AR overlay, photo capture, QR scan, or network sync
-yet. The next useful slice is device testing followed by project-linked photo
-capture; camera orientation preview remains M2.
+offline status/note/length editing, recovery, and event export. M1.5 now adds
+the three-mode shell plus numeric room/opening survey and project snapshot
+export. It deliberately has no camera, gyroscope, AR overlay, photo capture, QR
+scan, or network sync yet. The next useful slice is a touch-driven room preview;
+camera orientation preview remains M2.

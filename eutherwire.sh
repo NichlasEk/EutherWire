@@ -9,7 +9,7 @@ EW_WORK_DIR="$EW_REPO_DIR/.eutherwire-work"
 EW_DEMO_PROJECT="$EW_WORK_DIR/garage-demo.eutherwire"
 EW_3D_DEMO_PROJECT="$EW_WORK_DIR/garage-3d-demo.eutherwire"
 EW_WALL_DEMO_PROJECT="$EW_WORK_DIR/garage-wall-demo.eutherwire"
-EW_MOBILE_APK="$EW_REPO_DIR/src/EutherWire.Mobile/bin/Release/net10.0-android/android-arm64/publish/se.eutherwire.mobile-Signed.apk"
+EW_MOBILE_APK="$EW_REPO_DIR/src/EutherWire.Mobile/bin/Debug/net10.0-android/android-arm64/publish/se.eutherwire.mobile-Signed.apk"
 EW_ANDROID_KEYSTORE="${EUTHERWIRE_ANDROID_KEYSTORE:-${HOME}/.android/debug.keystore}"
 
 say() {
@@ -69,17 +69,21 @@ build() {
 
 build_mobile() {
     [[ -f "$EW_ANDROID_KEYSTORE" ]] || die "Android signing keystore was not found: $EW_ANDROID_KEYSTORE"
+    "$EW_DOTNET" restore src/EutherWire.Mobile/EutherWire.Mobile.csproj \
+        --runtime android-arm64 \
+        -m:1 >/dev/null
+    "$EW_DOTNET" clean src/EutherWire.Mobile/EutherWire.Mobile.csproj \
+        --configuration Debug \
+        --framework net10.0-android \
+        --runtime android-arm64 >/dev/null
     "$EW_DOTNET" build-server shutdown >/dev/null 2>&1 || true
-    say "Building signed ARM64 Android package"
+    say "Building complete signed ARM64 Android test package"
     "$EW_DOTNET" publish src/EutherWire.Mobile/EutherWire.Mobile.csproj \
-        --configuration Release \
+        --configuration Debug \
         --framework net10.0-android \
         --runtime android-arm64 \
         -m:1 \
         -nodeReuse:false \
-        -p:PublishTrimmed=false \
-        -p:RunAOTCompilation=false \
-        -p:AndroidEnableProfiledAot=false \
         -p:AndroidPackageFormat=apk \
         -p:AndroidKeyStore=true \
         -p:AndroidSigningKeyStore="$EW_ANDROID_KEYSTORE" \
