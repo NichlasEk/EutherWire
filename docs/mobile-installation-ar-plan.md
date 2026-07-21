@@ -13,18 +13,45 @@ The mobile view must use the same object IDs, 3D coordinates, mounting
 surfaces, and installation states as the desktop. It must not create a second
 AR-only drawing that can drift away from the project.
 
+## Product modes
+
+The phone starts with three explicit modes over the same project model:
+
+1. **Survey / Measure** is the first-run mode. Create a room by entering its
+   length, width, wall height, ceiling shape, and wall thickness. Then add and
+   measure every fixed opening and boundary feature: doors, garage doors,
+   windows, passages, penetrations, floor level changes, and known service
+   entries. The app shows a completeness checklist before the room becomes the
+   planning baseline.
+2. **Design / Plan** uses that measured shell to place everything that does not
+   exist yet: boards, boxes, outlets, lights, conduits, cables, network devices,
+   and routes. It edits the same document as the desktop renderer; users can
+   move between phone and desktop without conversion or duplicate drawings.
+3. **Install / Verify** locks ordinary plan geometry, guides the user through
+   planned objects with camera and orientation sensors, and records installed,
+   changed, blocked, and tested states together with actual measurements and
+   evidence.
+
+Later specialist modes such as inspection or maintenance may reuse the same
+objects and event journal. They must not fork the room model.
+
+The first survey implementation should be numeric and handle-driven rather
+than pretending that a phone camera is a precision rangefinder. Camera-assisted
+measurement may propose dimensions later, but the user confirms the values.
+
 ## Field workflow
 
-1. Open an EutherWire project on the phone.
-2. Choose the room and start installation mode.
-3. Calibrate the virtual room against known physical anchors.
-4. Walk around while camera motion and phone orientation update the view.
-5. See planned objects and routes overlaid on walls, floor, and ceiling.
-6. Tap an overlay to see label, dimensions, offsets, cable endpoints, and task
+1. Measure or open the room shell on the phone.
+2. Confirm fixed openings and service entries, then plan the missing objects.
+3. Choose the room and start installation mode.
+4. Calibrate the virtual room against known physical anchors.
+5. Walk around while camera motion and phone orientation update the view.
+6. See planned objects and routes overlaid on walls, floor, and ceiling.
+7. Tap an overlay to see label, dimensions, offsets, cable endpoints, and task
    status.
-7. Mark the task installed, changed, blocked, or tested.
-8. Record actual cable length, notes, and optional before/after photographs.
-9. Synchronize those changes back into the same EutherWire project.
+8. Mark the task installed, changed, blocked, or tested.
+9. Record actual cable length, notes, and optional before/after photographs.
+10. Synchronize those changes back into the same EutherWire project.
 
 ## Calibration
 
@@ -105,6 +132,15 @@ synchronize when a local EutherWire host becomes reachable again.
 - implemented: offline status/note/length changes and JSONL synchronization;
 - implemented: interruption recovery and idempotent pending queue;
 - intentionally no camera overlay yet.
+
+### M1.5: Survey shell
+
+- mode selector for Survey, Design, and Install;
+- create a room from length, width, wall height, and wall thickness;
+- place doors, garage doors, windows, passages, and penetrations on a selected
+  wall using exact width, height, sill, and corner offset;
+- show a reviewable 2D/3D shell and a survey completeness checklist;
+- save through the shared command/document model and portable snapshot format.
 
 ### M2: Camera orientation preview
 
