@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ApplicationId>se.eutherwire.mobile</ApplicationId>
+    <ApplicationTitle>EutherWire</ApplicationTitle>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
+    <JavaSdkDirectory Condition="'$(JavaSdkDirectory)' == '' and Exists('/usr/lib/jvm/java-17-openjdk')">/usr/lib/jvm/java-17-openjdk</JavaSdkDirectory>
+    <AndroidNeedsInternetPermission>false</AndroidNeedsInternetPermission>
+    <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+    <AndroidStoreUncompressedFileExtensions>.so;$(AndroidStoreUncompressedFileExtensions)</AndroidStoreUncompressedFileExtensions>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../EutherWire.Document/EutherWire.Document.csproj" />
+  </ItemGroup>
+</Project>

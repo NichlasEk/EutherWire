@@ -100,10 +100,11 @@ synchronize when a local EutherWire host becomes reachable again.
 
 ### M1: Mobile checklist
 
-- responsive task list using existing installation states;
-- object details, planned dimensions, and actual cable length;
-- offline status changes and synchronization;
-- no camera overlay yet.
+- implemented: native responsive task list using existing installation states;
+- implemented: object details, planned dimensions, and actual cable length;
+- implemented: offline status/note/length changes and JSONL synchronization;
+- implemented: interruption recovery and idempotent pending queue;
+- intentionally no camera overlay yet.
 
 ### M2: Camera orientation preview
 

@@ -237,8 +237,10 @@ The append-only JSONL event journal is implemented with unique event IDs,
 per-object base revisions, persisted idempotency, and non-destructive conflict
 reporting. Deterministic portable snapshot import/export now packages the
 canonical project, journal, and referenced evidence with integrity checks. The
-data-layer prerequisites are complete; the next slice is the first phone
-checklist shell.
+data-layer prerequisites are complete. The native Android M1 checklist now
+imports snapshots, persists/filter tasks, edits status/notes/actual lengths
+offline, recovers pending events, and exports JSONL for desktop merge. Physical
+device testing and project-linked photo capture are the next slices.
 
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets

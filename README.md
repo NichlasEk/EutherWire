@@ -202,6 +202,17 @@ existing target directory and validates all paths and contents before moving a
 staged project into place. See
 [portable-snapshots.md](docs/portable-snapshots.md).
 
+The first native Android checklist imports those snapshots, lists every
+installable object, edits status/note/actual length offline, recovers pending
+events after interruption, and exports JSONL for conflict-aware desktop merge:
+
+```sh
+./eutherwire.sh mobile-build
+./eutherwire.sh mobile-install
+```
+
+See [mobile-checklist.md](docs/mobile-checklist.md) for the field workflow.
+
 SVG and PNG exports are generated directly from document coordinates with stable object
 IDs and deterministic ordering. It is independent of the current desktop zoom,
 selection, and window size, making it suitable for Git diffs and later PDF

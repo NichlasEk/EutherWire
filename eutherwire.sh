@@ -9,6 +9,7 @@ EW_WORK_DIR="$EW_REPO_DIR/.eutherwire-work"
 EW_DEMO_PROJECT="$EW_WORK_DIR/garage-demo.eutherwire"
 EW_3D_DEMO_PROJECT="$EW_WORK_DIR/garage-3d-demo.eutherwire"
 EW_WALL_DEMO_PROJECT="$EW_WORK_DIR/garage-wall-demo.eutherwire"
+EW_MOBILE_APK="$EW_REPO_DIR/src/EutherWire.Mobile/bin/Debug/net10.0-android/se.eutherwire.mobile-Signed.apk"
 
 say() {
     printf '\n==> %s\n' "$*"
@@ -35,6 +36,8 @@ Usage:
   ./eutherwire.sh tasks [PROJECT]
   ./eutherwire.sh snapshot [PROJECT] [OUTPUT.eutherwire-snapshot]
   ./eutherwire.sh import-snapshot SNAPSHOT NEW_PROJECT
+  ./eutherwire.sh mobile-build
+  ./eutherwire.sh mobile-install
   ./eutherwire.sh export [PROJECT] [OUTPUT.svg]
   ./eutherwire.sh png [PROJECT] [OUTPUT.png]
   ./eutherwire.sh help
@@ -173,6 +176,20 @@ case "$EW_COMMAND" in
         [[ $# -ge 3 ]] || die "import-snapshot requires a snapshot path and a new .eutherwire project path"
         build
         "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- snapshot-import "$2" "$3"
+        ;;
+    mobile-build)
+        build
+        [[ -f "$EW_MOBILE_APK" ]] || die "Android APK was not produced at: $EW_MOBILE_APK"
+        say "Android APK ready"
+        printf '%s\n' "$EW_MOBILE_APK"
+        ;;
+    mobile-install)
+        command -v adb >/dev/null 2>&1 || die "adb was not found in PATH"
+        build
+        [[ -f "$EW_MOBILE_APK" ]] || die "Android APK was not produced at: $EW_MOBILE_APK"
+        say "Installing EutherWire on the connected Android device"
+        adb install -r "$EW_MOBILE_APK"
+        adb shell monkey -p se.eutherwire.mobile 1 >/dev/null 2>&1 || true
         ;;
     export)
         EW_PROJECT="${2:-$EW_EXAMPLE_PROJECT}"
