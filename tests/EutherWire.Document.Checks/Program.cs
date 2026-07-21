@@ -253,6 +253,12 @@ Require(connectedHistory.Redo(wired), "Planning margins must be redoable.");
 connectedHistory.Execute(wired, new SetCableInstallationCommand(cableId, InstallationStatus.Tested, 2350));
 Require(wired.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "Installation state must be stored on its cable.");
 Require(wired.RequireCable(cableId).ActualLengthMillimetres == 2350, "Actual installed cable length must be preserved.");
+var installedAt = new DateTimeOffset(2026, 7, 21, 12, 34, 56, TimeSpan.Zero);
+connectedHistory.Execute(wired, new SetInstallationRecordCommand(new InstallationRecord(
+    sourceId, InstallationStatus.Installed, installedAt, "Mounted above cabinet",
+    new Point3(120, 340, 1800), testResult: "Visual OK", photoReferences: ["photos/source-01.jpg"])));
+Require(wired.RequireInstallationRecord(sourceId).PhotoReferences.Single() == "photos/source-01.jpg",
+    "Every installable object must support field notes, measurements, tests, and photo references.");
 connectedHistory.Execute(wired, new SetSpaceVolumeCommand(wired.Space with { HeightMillimetres = 3000, WallThicknessMillimetres = 180, CeilingThicknessMillimetres = 300 }));
 Require(wired.RequireDevice(lightId).ElevationMillimetres == 3000, "Ceiling-mounted devices must follow an edited room height.");
 
@@ -278,15 +284,51 @@ Require(serializedAgain == serialized, "TOML save/load/save must be byte-identic
 Require(loaded.RequireCable(cableId).From == new PortReference(sourceId, "out"), "TOML must preserve typed port references.");
 Require(loaded.RequireConduit(pipeId).Route.Points[1] == new Point2(1000, -500), "TOML must preserve edited geometry.");
 Require(loaded.RequireAnnotation(noteId).Text == "BORRA HÄR", "TOML must preserve annotations.");
-Require(loaded.SchemaVersion == 10 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
-Require(loaded.ElectricalRules == ElectricalRuleProfile.Sweden2026, "Schema 10 must preserve its versioned Swedish electrical rule profile.");
+Require(loaded.SchemaVersion == 11 && loaded.Planning == new PlanningSettings(15, 500), "TOML must preserve versioned planning settings.");
+Require(loaded.ElectricalRules == ElectricalRuleProfile.Sweden2026, "Schema 11 must preserve its versioned Swedish electrical rule profile.");
 Require(loaded.RequireCable(cableId).Electrical is { Product: CableProductKind.Cat6, Preset: CircuitPreset.Data, Conductors.Count: 4 },
     "Schema 7 must migrate legacy CAT6 into explicit data pairs.");
 Require(loaded.RequireWallDimension(dimensionId).Label == "PORTÖPPNING", "TOML must preserve wall dimensions.");
 Require(loaded.RequireCable(cableId).InstallationStatus == InstallationStatus.Tested, "TOML must preserve installation state.");
 Require(loaded.RequireCable(cableId).ActualLengthMillimetres == 2350, "TOML must preserve actual installed length.");
+InstallationRecord loadedSourceInstallation = loaded.RequireInstallationRecord(sourceId);
+Require(loadedSourceInstallation.Status == InstallationStatus.Installed &&
+        loadedSourceInstallation.UpdatedAt == installedAt &&
+        loadedSourceInstallation.Note == "Mounted above cabinet" &&
+        loadedSourceInstallation.ActualPosition == new Point3(120, 340, 1800) &&
+        loadedSourceInstallation.TestResult == "Visual OK" &&
+        loadedSourceInstallation.PhotoReferences.Single() == "photos/source-01.jpg",
+    "Schema 11 must round-trip unified installation evidence for non-cable objects.");
 Require(loaded.Space.WallThicknessMillimetres == 180 && loaded.Space.CeilingThicknessMillimetres == 300, "TOML must preserve wall and ceiling construction thickness.");
 Require(loaded.RequireDevice(lightId).ElevationMillimetres == 3000 && loaded.RequireDevice(lightId).MountingSurface == MountingSurface.CeilingInterior, "TOML must preserve a light mounted on the interior ceiling.");
+
+const string legacySchema10 = """
+[project]
+name = "Legacy field project"
+units = "mm"
+schema_version = 10
+
+[[devices]]
+id = "legacy-device"
+kind = "outlet"
+label = "UTT-OLD"
+position = [100.0, 200.0]
+ports = []
+
+[[cables]]
+id = "legacy-cable"
+label = "OLD-CABLE"
+kind = "cat6"
+points = [[0.0, 0.0], [1000.0, 0.0]]
+installation_status = "tested"
+actual_length_mm = 1234.0
+""";
+ProjectDocument legacyLoaded = ProjectToml.Deserialize(legacySchema10);
+Require(legacyLoaded.RequireInstallationRecord(ObjectId.Parse("legacy-device")).Status == InstallationStatus.Planned,
+    "Schema 10 devices must migrate to planned installation records.");
+InstallationRecord migratedCableRecord = legacyLoaded.RequireInstallationRecord(ObjectId.Parse("legacy-cable"));
+Require(migratedCableRecord.Status == InstallationStatus.Tested && migratedCableRecord.ActualLengthMillimetres == 1234,
+    "Schema 10 cable status and measured length must migrate into the unified record.");
 
 var electricalDocument = new ProjectDocument("Electrical conductors");
 var fkSpec = ElectricalCableProfiles.Lighting(CableProductKind.Fk, 1.5, 2);
@@ -425,7 +467,8 @@ Require(garageAnalysis.ErrorCount == 0 && garageAnalysis.WarningCount == 0, "The
 Require(garageAnalysis.Materials.Any(item => item.Category == "cable" && item.Key == nameof(CableKind.Cat6) && Math.Abs(item.Quantity - 9.14) < 0.001), "Material list must aggregate recommended cable metres.");
 Require(garageAnalysis.Materials.Any(item => item.Category == "conduit" && item.Description == "Conduit 25 mm (inner 20.2 mm)"),
     "Material lists must order the nominal conduit product while retaining its actual inner diameter.");
-InstallationTask garageTask = garageAnalysis.InstallationTasks.Single();
+Require(garageAnalysis.InstallationTasks.Count == 6, "Every device, opening, conduit, and cable must become a field task.");
+InstallationTask garageTask = garageAnalysis.InstallationTasks.Single(task => task.Kind == InstallationObjectKind.Cable);
 Require(garageTask.From == "POE-SW:port-1" && garageTask.To == "KAM-N:eth0", "Installation tasks must resolve readable endpoint labels.");
 Require(garageTask.PlannedLengthMillimetres == 9140 && garageTask.ActualLengthMillimetres is null, "Installation tasks need planned and measured lengths.");
 
@@ -437,6 +480,12 @@ Require(garageProperties.Any(property => property.Id.ToString() == "camera-north
     "Conduit installation methods need stable property handles.");
 Require(garageProperties.Any(property => property.Id.ToString() == "camera-north:property:elevation_mm" && property.Value == "2200"), "Device elevation needs a property handle.");
 Require(garageProperties.Any(property => property.Id.ToString() == "camera-north:property:mounting_surface"), "Devices need a semantic mounting-surface handle.");
+PropertyHandleId deviceInstallationStatusId = PropertyHandleId.Parse("camera-north:property:installation_status");
+PropertyHandleId conduitInstallationNoteId = PropertyHandleId.Parse("camera-north-pipe:property:installation_note");
+Require(garageProperties.Any(property => property.Id == deviceInstallationStatusId && property.Value == "planned"),
+    "Devices need the same installation-status property as cables.");
+Require(garageProperties.Any(property => property.Id == conduitInstallationNoteId),
+    "Conduits need a writable installation note property.");
 PropertyHandleId roomWidthId = PropertyHandleId.Parse("space:property:width_mm");
 Require(garageProperties.Any(property => property.Id == roomWidthId && property.Value == "14000"), "Room dimensions need stable property handles.");
 PropertyHandleId garageDoorWidthId = PropertyHandleId.Parse("garage-door-south:property:width_mm");
@@ -448,6 +497,14 @@ propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(gara
 Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).InstallationStatus == InstallationStatus.Tested, "Property handles must create real document commands.");
 Require(propertyHistory.Undo(garageDocument), "Property-handle edits must be undoable.");
 Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).InstallationStatus == InstallationStatus.Planned, "Property undo must restore the previous value.");
+propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, deviceInstallationStatusId, "installed"));
+Require(garageDocument.RequireInstallationRecord(ObjectId.Parse("camera-north")).Status == InstallationStatus.Installed,
+    "Generic installation properties must update non-cable field tasks.");
+Require(propertyHistory.Undo(garageDocument), "Generic installation-state edits must be undoable.");
+propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, conduitInstallationNoteId, "Leave pull wire"));
+Require(garageDocument.RequireInstallationRecord(ObjectId.Parse("camera-north-pipe")).Note == "Leave pull wire",
+    "Installation notes must be editable through stable property handles.");
+Require(propertyHistory.Undo(garageDocument), "Installation-note edits must be undoable.");
 propertyHistory.Execute(garageDocument, DocumentProperties.CreateSetCommand(garageDocument, routeElevationId, "2500"));
 Require(garageDocument.RequireConduit(ObjectId.Parse("camera-north-pipe")).Route.SpatialPoints[1].Z == 2500, "Route elevation handles must edit 3D conduit geometry.");
 Require(garageDocument.RequireCable(ObjectId.Parse("camera-north-cat6")).Route.SpatialPoints[1].Z == 2500, "Contained cable elevation must follow its conduit.");
@@ -473,6 +530,21 @@ ProjectAnalysis missingMeasurement = ProjectAnalyzer.Analyze(garageDocument);
 Require(missingMeasurement.CompletedInstallationCount == 1, "Installed and tested cables must count as completed field tasks.");
 Require(missingMeasurement.Diagnostics.Any(item => item.Code == "installation.length.missing"), "Completed cable tasks without measurements need a warning.");
 Require(missingMeasurementHistory.Undo(garageDocument), "Installation task state must remain undoable.");
+
+var deletionDocument = new ProjectDocument("Installation deletion undo");
+ObjectId deletionDeviceId = ObjectId.Parse("delete-device");
+deletionDocument.Add(new Device(deletionDeviceId, DeviceKind.Outlet, new Point2(100, 200), "UTT-01"));
+var deletionHistory = new CommandHistory();
+deletionHistory.Execute(deletionDocument, new SetInstallationRecordCommand(new InstallationRecord(
+    deletionDeviceId, InstallationStatus.Tested, installedAt, "Measured in field",
+    new Point3(110, 205, 1050), testResult: "Passed", photoReferences: ["photos/utt-01.jpg"])));
+deletionHistory.Execute(deletionDocument, new DeleteObjectCommand(deletionDeviceId));
+Require(!deletionDocument.InstallationRecords.ContainsKey(deletionDeviceId), "Deleting an object must remove its installation record.");
+Require(deletionHistory.Undo(deletionDocument), "Deleted installable objects must be undoable.");
+InstallationRecord restoredInstallation = deletionDocument.RequireInstallationRecord(deletionDeviceId);
+Require(restoredInstallation.Status == InstallationStatus.Tested && restoredInstallation.Note == "Measured in field" &&
+        restoredInstallation.TestResult == "Passed" && restoredInstallation.PhotoReferences.Single() == "photos/utt-01.jpg",
+    "Delete undo must restore all installation evidence.");
 
 string garageSvg = SvgProjectExporter.Export(garageDocument);
 Require(SvgProjectExporter.Export(garageDocument) == garageSvg, "SVG export must be deterministic.");

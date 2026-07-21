@@ -114,9 +114,9 @@ static int Configure(string projectDirectory, string slackText, string serviceLo
     return 0;
 }
 
-static int Install(string projectDirectory, string cableText, string statusText, string? actualLengthText)
+static int Install(string projectDirectory, string objectText, string statusText, string? actualLengthText)
 {
-    ObjectId cableId = ObjectId.Parse(cableText);
+    ObjectId objectId = ObjectId.Parse(objectText);
     if (!Enum.TryParse(statusText, true, out InstallationStatus status))
     {
         throw new ArgumentException($"Unknown installation status '{statusText}'.");
@@ -125,10 +125,14 @@ static int Install(string projectDirectory, string cableText, string statusText,
         ? null
         : double.Parse(actualLengthText, NumberStyles.Float, CultureInfo.InvariantCulture);
     ProjectDocument document = ProjectToml.Load(projectDirectory);
+    InstallationRecord previous = document.RequireInstallationRecord(objectId);
     var history = new CommandHistory();
-    history.Execute(document, new SetCableInstallationCommand(cableId, status, actualLength));
+    history.Execute(document, new SetInstallationRecordCommand(new InstallationRecord(
+        objectId, status, DateTimeOffset.UtcNow, previous.Note, previous.ActualPosition,
+        actualLength ?? previous.ActualLengthMillimetres, previous.TestResult, previous.PhotoReferences)));
     ProjectToml.Save(projectDirectory, document);
-    Console.WriteLine($"Installation: {cableId} status={status} actual_length_mm={(actualLength?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown")}");
+    InstallationRecord updated = document.RequireInstallationRecord(objectId);
+    Console.WriteLine($"Installation: {objectId} kind={document.RequireInstallationObjectKind(objectId).ToString().ToLowerInvariant()} status={status} actual_length_mm={(updated.ActualLengthMillimetres?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown")}");
     return 0;
 }
 
@@ -239,7 +243,8 @@ static int PrintTasks(ProjectDocument document)
         string actual = task.ActualLengthMillimetres is double length
             ? length.ToString("0.###", CultureInfo.InvariantCulture)
             : "unknown";
-        Console.WriteLine($"{task.CableId}\t{task.Status.ToString().ToLowerInvariant()}\t{task.Label}\t{task.From}\t{task.To}\tplanned_mm={task.PlannedLengthMillimetres.ToString("0.###", CultureInfo.InvariantCulture)}\tactual_mm={actual}");
+        string planned = task.PlannedLengthMillimetres?.ToString("0.###", CultureInfo.InvariantCulture) ?? "n/a";
+        Console.WriteLine($"{task.ObjectId}\t{task.Kind.ToString().ToLowerInvariant()}\t{task.Status.ToString().ToLowerInvariant()}\t{task.Label}\t{task.From}\t{task.To}\tplanned_mm={planned}\tactual_mm={actual}");
     }
     return analysis.ErrorCount > 0 ? 3 : 0;
 }
@@ -262,5 +267,5 @@ static void Usage()
     Console.Error.WriteLine("  eutherwire insert-vertex <project.eutherwire> <route-id> <index> <x-mm> <y-mm>");
     Console.Error.WriteLine("  eutherwire delete-vertex <project.eutherwire> <route-id> <index>");
     Console.Error.WriteLine("  eutherwire configure <project.eutherwire> <slack-percent> <service-loop-mm>");
-    Console.Error.WriteLine("  eutherwire install <project.eutherwire> <cable-id> <planned|installed|tested|changed|blocked> [actual-length-mm]");
+    Console.Error.WriteLine("  eutherwire install <project.eutherwire> <object-id> <planned|installed|tested|changed|blocked> [actual-length-mm]");
 }

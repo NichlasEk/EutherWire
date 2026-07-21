@@ -67,24 +67,26 @@ approaches or selects the object.
 
 ## Installation records
 
-Every field update targets a stable document object ID. A mobile installation
-record should contain at least:
+Implemented in desktop document schema 11: every device, opening, conduit, and
+cable owns an installation record addressed by its stable object ID. It
+contains:
 
 ```text
 object_id
 status
-timestamp
+updated_at
 actual_position_or_offset (optional)
 actual_length_mm (optional)
 note (optional)
 photo_references (optional)
-calibration_session_id
+test_result (optional)
 ```
 
-The first synchronization format can be an append-only event log beside the
-project. Desktop code applies those events through the same document commands
-used by the inspector and CLI. This preserves undoability and makes conflicting
-offline edits detectable.
+Calibration session IDs belong to future AR capture events rather than the
+base installation record. The next synchronization format is an append-only
+event log beside the project. Desktop code applies those events through the
+same document commands used by the inspector and CLI. This preserves
+undoability and makes conflicting offline edits detectable.
 
 ## Privacy and offline operation
 
@@ -132,13 +134,17 @@ synchronize when a local EutherWire host becomes reachable again.
 
 ## Desktop prerequisites
 
-Before anchored AR is worth implementing, the desktop model needs:
+Before anchored AR is worth implementing, the remaining desktop/model work is:
 
 - doors, windows, garage doors, beams, and penetrations as real geometry;
 - wall elevation views and reliable room-local coordinates;
 - camera orbit and saved viewpoints;
 - exact dimensions and corner offsets;
 - a portable project snapshot plus installation-event interchange format.
+
+Doors and garage doors, wall elevations, reliable room-local coordinates, exact
+dimensions, and orbit navigation are already present. Saved viewpoints and the
+event interchange format remain prerequisites.
 
 ## First acceptance target
 

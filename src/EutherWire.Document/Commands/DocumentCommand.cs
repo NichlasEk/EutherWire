@@ -563,6 +563,7 @@ public sealed class SetCableInstallationCommand(
     double? actualLengthMillimetres) : IDocumentCommand
 {
     private CableRoute? _previous;
+    private InstallationRecord? _previousRecord;
 
     public string Description => $"Set {cableId} installation state";
 
@@ -574,25 +575,48 @@ public sealed class SetCableInstallationCommand(
         }
         CableRoute cable = document.RequireCable(cableId);
         _previous ??= cable;
-        document.Replace(cable with { InstallationStatus = status, ActualLengthMillimetres = actualLengthMillimetres });
+        _previousRecord ??= document.RequireInstallationRecord(cableId);
+        document.ReplaceInstallationRecord(new InstallationRecord(cableId, status,
+            _previousRecord.UpdatedAt, _previousRecord.Note, _previousRecord.ActualPosition,
+            actualLengthMillimetres, _previousRecord.TestResult, _previousRecord.PhotoReferences));
     }
 
     public void Undo(ProjectDocument document)
     {
         _ = document.RequireCable(cableId);
         document.Replace(_previous ?? throw new InvalidOperationException("Command has not been applied."));
+        document.ReplaceInstallationRecord(_previousRecord ?? throw new InvalidOperationException("Command has not been applied."));
     }
+}
+
+public sealed class SetInstallationRecordCommand(InstallationRecord record) : IDocumentCommand
+{
+    private InstallationRecord? _previous;
+
+    public string Description => $"Update installation record for {record.ObjectId}";
+
+    public void Apply(ProjectDocument document)
+    {
+        _previous ??= document.RequireInstallationRecord(record.ObjectId);
+        document.ReplaceInstallationRecord(record);
+    }
+
+    public void Undo(ProjectDocument document) =>
+        document.ReplaceInstallationRecord(_previous ?? throw new InvalidOperationException("Command has not been applied."));
 }
 
 public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
 {
     private object? _removed;
+    private InstallationRecord? _installationRecord;
 
     public string Description => $"Delete {objectId}";
 
     public void Apply(ProjectDocument document)
     {
         _removed ??= Capture(document);
+        if (_installationRecord is null && document.InstallationRecords.TryGetValue(objectId, out InstallationRecord? record))
+            _installationRecord = record;
         Remove(document);
     }
 
@@ -621,6 +645,7 @@ public sealed class DeleteObjectCommand(ObjectId objectId) : IDocumentCommand
             default:
                 throw new InvalidOperationException("Command has not been applied.");
         }
+        if (_installationRecord is not null) document.ReplaceInstallationRecord(_installationRecord);
     }
 
     private object Capture(ProjectDocument document)

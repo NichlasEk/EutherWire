@@ -149,7 +149,8 @@ dotnet run --project src/EutherWire.App --no-build -- examples/garage.eutherwire
 Use the middle or right mouse button to pan and the wheel to zoom around the
 pointer. Yellow object handles and blue route-vertex handles are draggable.
 `DEV`, `WIRE`, `PIPE`, and `TEXT` create real document objects; select an object
-to edit its properties or delete it through the inspector. Cable status and
+to edit its properties or delete it through the inspector. Devices, openings,
+conduits, and cables share installation status and notes; cable status and
 actual installed length are editable there as undoable commands. Diagnostic
 rows select the affected object, so a reported problem leads back to its
 geometry and semantic handles.
@@ -162,6 +163,7 @@ dotnet run --project src/EutherWire.Cli -- properties examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- move examples/garage.eutherwire camera-north-pipe:vertex:1 7000 -3000
 dotnet run --project src/EutherWire.Cli -- move3d examples/garage.eutherwire camera-north-pipe:elevation:1 6500 -1000 2700
 dotnet run --project src/EutherWire.Cli -- set-property examples/garage.eutherwire camera-north-cat6:property:installation_status tested
+dotnet run --project src/EutherWire.Cli -- set-property examples/garage.eutherwire camera-north-pipe:property:installation_note "Leave pull wire"
 dotnet run --project src/EutherWire.Cli -- validate examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- report examples/garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- tasks examples/garage.eutherwire
@@ -169,18 +171,22 @@ dotnet run --project src/EutherWire.Cli -- insert-vertex examples/garage.eutherw
 dotnet run --project src/EutherWire.Cli -- delete-vertex examples/garage.eutherwire camera-north-pipe 1
 dotnet run --project src/EutherWire.Cli -- configure examples/garage.eutherwire 10 1000
 dotnet run --project src/EutherWire.Cli -- install examples/garage.eutherwire camera-north-cat6 tested 8200
+dotnet run --project src/EutherWire.Cli -- install examples/garage.eutherwire camera-north installed
 dotnet run --project src/EutherWire.Cli -- export-svg examples/garage.eutherwire garage.svg
 dotnet run --project src/EutherWire.Cli -- export-png examples/garage.eutherwire garage.png
 ```
 
 `project.toml` writes are deterministic and atomic. A save/load/save round trip
-must produce no diff. Planning slack, service-loop length, cable installation
-state, and measured installed length live in the same versioned model so a
+must produce no diff. Planning slack, service-loop length, unified installation
+records, and measured installed length live in the same versioned model so a
 future mobile installation client does not need a second source of truth.
 Geometry and properties both have stable semantic addresses. For example,
 `camera-north-pipe:vertex:1` moves a route point while
 `camera-north-cat6:property:actual_length_mm` edits installation data through
 the same undoable command layer used by the desktop UI.
+Schema 11 stores one installation record per device, opening, conduit, and
+cable, including optional timestamp, field position, note, test result, and
+photo references. See [installation-records.md](docs/installation-records.md).
 
 SVG and PNG exports are generated directly from document coordinates with stable object
 IDs and deterministic ordering. It is independent of the current desktop zoom,

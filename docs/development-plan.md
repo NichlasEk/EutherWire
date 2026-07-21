@@ -227,10 +227,14 @@ Installation mode prioritises:
   the underlying plan geometry;
 - optional laser/rangefinder and camera-assisted measurements later.
 
-The shared analysis layer now emits installation tasks with stable cable IDs,
-human-readable endpoints, planned order length, measured installed length, and
-field status. Desktop and `eutherwire tasks` consume this list; the mobile UI
-can use it without inventing a separate task model.
+The shared analysis layer now emits installation tasks with stable object IDs
+for devices, openings, conduits, and cables. Schema 11 keeps common status,
+timestamp, note, actual position/length, test result, and photo references in
+one installation record. Desktop properties and `eutherwire tasks` consume the
+same model; the mobile UI does not need to invent a separate task database.
+
+The next mobile prerequisite is an append-only, idempotent event journal over
+these records, followed by portable snapshot import/export and conflict tests.
 
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets

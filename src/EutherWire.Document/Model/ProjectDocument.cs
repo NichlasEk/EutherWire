@@ -8,6 +8,7 @@ public sealed class ProjectDocument
     private readonly Dictionary<ObjectId, Annotation> _annotations = [];
     private readonly Dictionary<ObjectId, BuildingOpening> _openings = [];
     private readonly Dictionary<ObjectId, WallDimension> _wallDimensions = [];
+    private readonly Dictionary<ObjectId, InstallationRecord> _installationRecords = [];
 
     public ProjectDocument(string name)
     {
@@ -15,7 +16,7 @@ public sealed class ProjectDocument
         Name = name;
     }
 
-    public int SchemaVersion => 10;
+    public int SchemaVersion => 11;
     public string Name { get; set; }
     public PlanningSettings Planning { get; internal set; } = new();
     public ElectricalRuleProfile ElectricalRules { get; internal set; } = ElectricalRuleProfile.Sweden2026;
@@ -26,23 +27,28 @@ public sealed class ProjectDocument
     public IReadOnlyDictionary<ObjectId, Annotation> Annotations => _annotations;
     public IReadOnlyDictionary<ObjectId, BuildingOpening> Openings => _openings;
     public IReadOnlyDictionary<ObjectId, WallDimension> WallDimensions => _wallDimensions;
+    public IReadOnlyDictionary<ObjectId, InstallationRecord> InstallationRecords => _installationRecords;
 
     public void Add(Device device)
     {
         RequireUniqueId(device.Id);
         _devices.Add(device.Id, device);
+        AddDefaultInstallationRecord(device.Id);
     }
 
     public void Add(CableRoute cable)
     {
         RequireUniqueId(cable.Id);
         _cables.Add(cable.Id, cable);
+        _installationRecords.Add(cable.Id, new InstallationRecord(cable.Id, cable.InstallationStatus,
+            actualLengthMillimetres: cable.ActualLengthMillimetres));
     }
 
     public void Add(Conduit conduit)
     {
         RequireUniqueId(conduit.Id);
         _conduits.Add(conduit.Id, conduit);
+        AddDefaultInstallationRecord(conduit.Id);
     }
 
     public void Add(Annotation annotation)
@@ -55,6 +61,7 @@ public sealed class ProjectDocument
     {
         RequireUniqueId(opening.Id);
         _openings.Add(opening.Id, opening);
+        AddDefaultInstallationRecord(opening.Id);
     }
 
     public void Add(WallDimension dimension)
@@ -96,6 +103,18 @@ public sealed class ProjectDocument
             ? dimension
             : throw new KeyNotFoundException($"Wall dimension '{id}' does not exist.");
 
+    public InstallationRecord RequireInstallationRecord(ObjectId id) =>
+        _installationRecords.TryGetValue(id, out InstallationRecord? record)
+            ? record
+            : throw new KeyNotFoundException($"Installation record for '{id}' does not exist.");
+
+    public InstallationObjectKind RequireInstallationObjectKind(ObjectId id) =>
+        _devices.ContainsKey(id) ? InstallationObjectKind.Device :
+        _openings.ContainsKey(id) ? InstallationObjectKind.Opening :
+        _conduits.ContainsKey(id) ? InstallationObjectKind.Conduit :
+        _cables.ContainsKey(id) ? InstallationObjectKind.Cable :
+        throw new KeyNotFoundException($"Object '{id}' is not installable.");
+
     internal bool TryGetCable(ObjectId id, out CableRoute? cable) => _cables.TryGetValue(id, out cable);
     internal bool TryGetConduit(ObjectId id, out Conduit? conduit) => _conduits.TryGetValue(id, out conduit);
 
@@ -111,11 +130,20 @@ public sealed class ProjectDocument
         _conduits[conduit.Id] = conduit;
     }
 
-    internal bool RemoveDevice(ObjectId id, out Device? device) => _devices.Remove(id, out device);
-    internal bool RemoveCable(ObjectId id, out CableRoute? cable) => _cables.Remove(id, out cable);
-    internal bool RemoveConduit(ObjectId id, out Conduit? conduit) => _conduits.Remove(id, out conduit);
+    internal void ReplaceInstallationRecord(InstallationRecord record)
+    {
+        _ = RequireInstallationObjectKind(record.ObjectId);
+        _ = RequireInstallationRecord(record.ObjectId);
+        _installationRecords[record.ObjectId] = record;
+        if (_cables.TryGetValue(record.ObjectId, out CableRoute? cable))
+            _cables[record.ObjectId] = cable with { InstallationStatus = record.Status, ActualLengthMillimetres = record.ActualLengthMillimetres };
+    }
+
+    internal bool RemoveDevice(ObjectId id, out Device? device) => RemoveInstallable(_devices, id, out device);
+    internal bool RemoveCable(ObjectId id, out CableRoute? cable) => RemoveInstallable(_cables, id, out cable);
+    internal bool RemoveConduit(ObjectId id, out Conduit? conduit) => RemoveInstallable(_conduits, id, out conduit);
     internal bool RemoveAnnotation(ObjectId id, out Annotation? annotation) => _annotations.Remove(id, out annotation);
-    internal bool RemoveOpening(ObjectId id, out BuildingOpening? opening) => _openings.Remove(id, out opening);
+    internal bool RemoveOpening(ObjectId id, out BuildingOpening? opening) => RemoveInstallable(_openings, id, out opening);
     internal bool RemoveWallDimension(ObjectId id, out WallDimension? dimension) => _wallDimensions.Remove(id, out dimension);
 
     private void RequireUniqueId(ObjectId id)
@@ -124,5 +152,14 @@ public sealed class ProjectDocument
         {
             throw new InvalidOperationException($"Object ID '{id}' already exists in this document.");
         }
+    }
+
+    private void AddDefaultInstallationRecord(ObjectId id) => _installationRecords.Add(id, new InstallationRecord(id));
+
+    private bool RemoveInstallable<T>(Dictionary<ObjectId, T> objects, ObjectId id, out T? value)
+    {
+        bool removed = objects.Remove(id, out value);
+        if (removed) _installationRecords.Remove(id);
+        return removed;
     }
 }

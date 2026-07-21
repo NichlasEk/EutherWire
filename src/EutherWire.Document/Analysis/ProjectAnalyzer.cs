@@ -1,3 +1,4 @@
+using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 
 namespace EutherWire.Document.Analysis;
@@ -50,13 +51,21 @@ public sealed record ElectricalDesignCheck(
     string Message);
 
 public sealed record InstallationTask(
-    ObjectId CableId,
+    ObjectId ObjectId,
+    InstallationObjectKind Kind,
     string Label,
     InstallationStatus Status,
     string From,
     string To,
-    double PlannedLengthMillimetres,
-    double? ActualLengthMillimetres);
+    double? PlannedLengthMillimetres,
+    double? ActualLengthMillimetres,
+    string? Note,
+    Point3? ActualPosition,
+    string? TestResult,
+    IReadOnlyList<string> PhotoReferences)
+{
+    public ObjectId CableId => ObjectId;
+}
 
 public sealed record ProjectAnalysis(
     double TotalCableLengthMillimetres,
@@ -157,10 +166,20 @@ public static class ProjectAnalyzer
 
         double cableLength = document.Cables.Values.Sum(cable => cable.Route.LengthMillimetres);
         double recommendedCableLength = document.Cables.Values.Sum(cable => RecommendedLength(document, cable));
-        double? actualCableLength = document.Cables.Values.Any(cable => cable.ActualLengthMillimetres.HasValue)
-            ? document.Cables.Values.Sum(cable => cable.ActualLengthMillimetres ?? 0)
+        IEnumerable<InstallationRecord> cableRecords = document.Cables.Keys.Select(document.RequireInstallationRecord);
+        double? actualCableLength = cableRecords.Any(record => record.ActualLengthMillimetres.HasValue)
+            ? cableRecords.Sum(record => record.ActualLengthMillimetres ?? 0)
             : null;
         double conduitLength = document.Conduits.Values.Sum(conduit => conduit.Route.LengthMillimetres);
+        IReadOnlyList<InstallationTask> installationTasks = BuildInstallationTasks(document);
+        foreach (InstallationTask task in installationTasks.Where(task => task.Status == InstallationStatus.Blocked))
+        {
+            diagnostics.Add(new ProjectDiagnostic(
+                "installation.blocked",
+                DiagnosticSeverity.Info,
+                task.ObjectId,
+                $"{task.Kind} '{task.Label}' is blocked and needs field follow-up."));
+        }
 
         return new ProjectAnalysis(
             cableLength,
@@ -171,7 +190,7 @@ public static class ProjectAnalyzer
             fills,
             loads,
             designChecks,
-            BuildInstallationTasks(document),
+            installationTasks,
             diagnostics);
     }
 
@@ -202,6 +221,7 @@ public static class ProjectAnalyzer
 
     private static void CheckCable(ProjectDocument document, CableRoute cable, List<ProjectDiagnostic> diagnostics)
     {
+        InstallationRecord installation = document.RequireInstallationRecord(cable.Id);
         CheckElectrical(cable, diagnostics);
         Port? from = ResolvePort(document, cable, cable.From, "start", diagnostics);
         Port? to = ResolvePort(document, cable, cable.To, "end", diagnostics);
@@ -222,23 +242,14 @@ public static class ProjectAnalyzer
                 cable.Id,
                 $"Cable '{cable.Label}' feeds a PoE port but does not start at a PoE-capable port."));
         }
-        if (cable.InstallationStatus is InstallationStatus.Installed or InstallationStatus.Tested && cable.ActualLengthMillimetres is null)
+        if (installation.Status is InstallationStatus.Installed or InstallationStatus.Tested && installation.ActualLengthMillimetres is null)
         {
             diagnostics.Add(new ProjectDiagnostic(
                 "installation.length.missing",
                 DiagnosticSeverity.Warning,
                 cable.Id,
-                $"Cable '{cable.Label}' is {cable.InstallationStatus.ToString().ToLowerInvariant()} but has no measured installed length."));
+                $"Cable '{cable.Label}' is {installation.Status.ToString().ToLowerInvariant()} but has no measured installed length."));
         }
-        if (cable.InstallationStatus == InstallationStatus.Blocked)
-        {
-            diagnostics.Add(new ProjectDiagnostic(
-                "installation.blocked",
-                DiagnosticSeverity.Info,
-                cable.Id,
-                $"Cable '{cable.Label}' is blocked and needs field follow-up."));
-        }
-
         if (cable.ConduitId is not ObjectId conduitId)
         {
             return;
@@ -508,18 +519,27 @@ public static class ProjectAnalyzer
         return materials;
     }
 
-    private static IReadOnlyList<InstallationTask> BuildInstallationTasks(ProjectDocument document) =>
-        document.Cables.Values
-            .OrderBy(cable => cable.Id.Value, StringComparer.Ordinal)
-            .Select(cable => new InstallationTask(
-                cable.Id,
-                cable.Label,
-                cable.InstallationStatus,
-                Endpoint(document, cable.From),
-                Endpoint(document, cable.To),
-                RecommendedLength(document, cable),
-                cable.ActualLengthMillimetres))
-            .ToList();
+    private static IReadOnlyList<InstallationTask> BuildInstallationTasks(ProjectDocument document)
+    {
+        var tasks = new List<InstallationTask>();
+        foreach (Device device in document.Devices.Values)
+            tasks.Add(Task(document, device.Id, device.Label, device.MountingSurface.ToString(), "device", null));
+        foreach (BuildingOpening opening in document.Openings.Values)
+            tasks.Add(Task(document, opening.Id, opening.Label, opening.Surface.ToString(), opening.Kind.ToString(), null));
+        foreach (Conduit conduit in document.Conduits.Values)
+            tasks.Add(Task(document, conduit.Id, conduit.Label, conduit.InstallationMethod.ToString(), "route", conduit.Route.LengthMillimetres));
+        foreach (CableRoute cable in document.Cables.Values)
+            tasks.Add(Task(document, cable.Id, cable.Label, Endpoint(document, cable.From), Endpoint(document, cable.To), RecommendedLength(document, cable)));
+        return tasks.OrderBy(task => task.Kind).ThenBy(task => task.ObjectId.Value, StringComparer.Ordinal).ToList();
+    }
+
+    private static InstallationTask Task(ProjectDocument document, ObjectId id, string label, string from, string to, double? plannedLength)
+    {
+        InstallationRecord record = document.RequireInstallationRecord(id);
+        return new InstallationTask(id, document.RequireInstallationObjectKind(id), label, record.Status, from, to,
+            plannedLength, record.ActualLengthMillimetres, record.Note, record.ActualPosition,
+            record.TestResult, record.PhotoReferences);
+    }
 
     private static string Endpoint(ProjectDocument document, PortReference? reference)
     {

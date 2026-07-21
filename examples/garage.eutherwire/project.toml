@@ -1,8 +1,9 @@
 annotations = []
+wall_dimensions = []
 [project]
 name = "Garage Draft"
 units = "mm"
-schema_version = 10
+schema_version = 11
 cable_slack_percent = 10.0
 service_loop_mm = 1000.0
 [electrical_rules]
@@ -86,3 +87,53 @@ from = "poe-switch:port-1"
 to = "camera-north:eth0"
 conduit = "camera-north-pipe"
 installation_status = "planned"
+product = "cat6"
+circuit = "data"
+shielding = "u_utp"
+poe_capable = false
+[[cables.conductors]]
+id = "pair1"
+function = "data_pair"
+colour = "white_blue"
+area_mm2 = 0.2
+
+[[cables.conductors]]
+id = "pair2"
+function = "data_pair"
+colour = "white_orange"
+area_mm2 = 0.2
+
+[[cables.conductors]]
+id = "pair3"
+function = "data_pair"
+colour = "white_green"
+area_mm2 = 0.2
+
+[[cables.conductors]]
+id = "pair4"
+function = "data_pair"
+colour = "white_brown"
+area_mm2 = 0.2
+[[installation_records]]
+object_id = "camera-north"
+status = "planned"
+
+[[installation_records]]
+object_id = "camera-north-cat6"
+status = "planned"
+
+[[installation_records]]
+object_id = "camera-north-pipe"
+status = "planned"
+
+[[installation_records]]
+object_id = "garage-door-south"
+status = "planned"
+
+[[installation_records]]
+object_id = "main-board"
+status = "planned"
+
+[[installation_records]]
+object_id = "poe-switch"
+status = "planned"

@@ -59,6 +59,7 @@ public static class DocumentProperties
             properties.Add(Choice(device.Id, "kind", device.Kind));
             properties.Add(Number(device.Id, "elevation_mm", device.ElevationMillimetres));
             properties.Add(Choice(device.Id, "mounting_surface", device.MountingSurface));
+            AddInstallationProperties(properties, document, device.Id);
         }
         foreach (BuildingOpening opening in document.Openings.Values)
         {
@@ -70,16 +71,18 @@ public static class DocumentProperties
             properties.Add(Number(opening.Id, "centre_z_mm", opening.Centre.Z));
             properties.Add(Number(opening.Id, "width_mm", opening.WidthMillimetres));
             properties.Add(Number(opening.Id, "height_mm", opening.HeightMillimetres));
+            AddInstallationProperties(properties, document, opening.Id);
         }
         foreach (CableRoute cable in document.Cables.Values)
         {
             properties.Add(Text(cable.Id, "label", cable.Label));
             properties.Add(Choice(cable.Id, "kind", cable.Kind));
-            properties.Add(Choice(cable.Id, "installation_status", cable.InstallationStatus));
+            AddInstallationProperties(properties, document, cable.Id);
+            InstallationRecord installation = document.RequireInstallationRecord(cable.Id);
             properties.Add(new DocumentProperty(
                 new PropertyHandleId(cable.Id, "actual_length_mm"),
                 PropertyValueKind.Number,
-                cable.ActualLengthMillimetres?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown"));
+                installation.ActualLengthMillimetres?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown"));
             if (cable.ConduitId is null) AddVertexElevations(properties, cable.Id, cable.Route);
         }
         foreach (Conduit conduit in document.Conduits.Values)
@@ -94,6 +97,7 @@ public static class DocumentProperties
                 PropertyValueKind.Number,
                 conduit.NominalDiameterMillimetres?.ToString("0.###", CultureInfo.InvariantCulture) ?? "unknown"));
             properties.Add(Choice(conduit.Id, "installation_method", conduit.InstallationMethod));
+            AddInstallationProperties(properties, document, conduit.Id);
             AddVertexElevations(properties, conduit.Id, conduit.Route);
         }
         foreach (Annotation annotation in document.Annotations.Values)
@@ -119,15 +123,10 @@ public static class DocumentProperties
                 new SetDeviceElevationCommand(id.ObjectId, ParseNonNegative(value)),
             "mounting_surface" when document.Devices.ContainsKey(id.ObjectId) =>
                 new SetDeviceMountingSurfaceCommand(id.ObjectId, ParseChoice<MountingSurface>(value)),
+            "installation_status" => UpdateInstallationStatus(document, id.ObjectId, ParseChoice<InstallationStatus>(value)),
+            "installation_note" => UpdateInstallationNote(document, id.ObjectId, value),
             _ when document.Openings.ContainsKey(id.ObjectId) => CreateOpeningCommand(document, id, value),
-            "installation_status" => new SetCableInstallationCommand(
-                id.ObjectId,
-                ParseChoice<InstallationStatus>(value),
-                document.RequireCable(id.ObjectId).ActualLengthMillimetres),
-            "actual_length_mm" => new SetCableInstallationCommand(
-                id.ObjectId,
-                document.RequireCable(id.ObjectId).InstallationStatus,
-                ParseOptionalLength(value)),
+            "actual_length_mm" => UpdateInstallationLength(document, id.ObjectId, ParseOptionalLength(value)),
             "inner_diameter_mm" => new SetConduitDiameterCommand(
                 id.ObjectId,
                 double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture)),
@@ -148,6 +147,41 @@ public static class DocumentProperties
 
     private static DocumentProperty Number(ObjectId id, string name, double value) =>
         new(new PropertyHandleId(id, name), PropertyValueKind.Number, value.ToString("0.###", CultureInfo.InvariantCulture));
+
+    private static void AddInstallationProperties(List<DocumentProperty> properties, ProjectDocument document, ObjectId id)
+    {
+        InstallationRecord record = document.RequireInstallationRecord(id);
+        properties.Add(Choice(id, "installation_status", record.Status));
+        properties.Add(Text(id, "installation_note", record.Note ?? string.Empty));
+    }
+
+    private static IDocumentCommand UpdateInstallationStatus(ProjectDocument document, ObjectId id, InstallationStatus status)
+    {
+        InstallationRecord previous = document.RequireInstallationRecord(id);
+        return new SetInstallationRecordCommand(new InstallationRecord(
+            id,
+            status,
+            DateTimeOffset.UtcNow,
+            previous.Note,
+            previous.ActualPosition,
+            previous.ActualLengthMillimetres,
+            previous.TestResult,
+            previous.PhotoReferences));
+    }
+
+    private static IDocumentCommand UpdateInstallationNote(ProjectDocument document, ObjectId id, string note)
+    {
+        InstallationRecord previous = document.RequireInstallationRecord(id);
+        return new SetInstallationRecordCommand(new InstallationRecord(id, previous.Status, DateTimeOffset.UtcNow,
+            note, previous.ActualPosition, previous.ActualLengthMillimetres, previous.TestResult, previous.PhotoReferences));
+    }
+
+    private static IDocumentCommand UpdateInstallationLength(ProjectDocument document, ObjectId id, double? actualLengthMillimetres)
+    {
+        InstallationRecord previous = document.RequireInstallationRecord(id);
+        return new SetInstallationRecordCommand(new InstallationRecord(id, previous.Status, DateTimeOffset.UtcNow,
+            previous.Note, previous.ActualPosition, actualLengthMillimetres, previous.TestResult, previous.PhotoReferences));
+    }
 
     private static void AddVertexElevations(List<DocumentProperty> properties, ObjectId id, EutherWire.Document.Geometry.Polyline route)
     {

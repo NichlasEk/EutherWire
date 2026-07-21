@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
 using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
@@ -63,6 +64,10 @@ public static class ProjectToml
                 .OrderBy(dimension => dimension.Id.Value, StringComparer.Ordinal)
                 .Select(ToFile)
                 .ToList(),
+            InstallationRecords = document.InstallationRecords.Values
+                .OrderBy(record => record.ObjectId.Value, StringComparer.Ordinal)
+                .Select(ToFile)
+                .ToList(),
         };
         return TomlSerializer.Serialize(file).Replace("\r\n", "\n", StringComparison.Ordinal);
     }
@@ -89,9 +94,9 @@ public static class ProjectToml
         {
             throw new ProjectFormatException("Missing [project] table.");
         }
-        if (file.Project.SchemaVersion is < 1 or > 10)
+        if (file.Project.SchemaVersion is < 1 or > 11)
         {
-            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 10.");
+            throw new ProjectFormatException($"Unsupported schema_version {file.Project.SchemaVersion}; expected 1 through 11.");
         }
         if (!string.Equals(file.Project.Units, "mm", StringComparison.Ordinal))
         {
@@ -200,6 +205,40 @@ public static class ProjectToml
                 start,
                 end,
                 source.Label ?? string.Empty));
+        }
+        var installationObjectIds = new HashSet<ObjectId>();
+        foreach (InstallationRecordFile source in file.InstallationRecords)
+        {
+            ObjectId objectId = Id(source.ObjectId, "installation record object");
+            if (!installationObjectIds.Add(objectId))
+                throw new ProjectFormatException($"Duplicate installation record for '{objectId}'.");
+            try
+            {
+                _ = document.RequireInstallationObjectKind(objectId);
+            }
+            catch (KeyNotFoundException exception)
+            {
+                throw new ProjectFormatException($"Installation record references missing or non-installable object '{objectId}'.", exception);
+            }
+            DateTimeOffset? updatedAt = null;
+            if (!string.IsNullOrWhiteSpace(source.UpdatedAt))
+            {
+                if (!DateTimeOffset.TryParse(source.UpdatedAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset parsed))
+                    throw new ProjectFormatException($"Invalid installation_records[{objectId}].updated_at '{source.UpdatedAt}'.");
+                updatedAt = parsed;
+            }
+            Point3? actualPosition = source.ActualPosition is { Length: > 0 }
+                ? SpatialPoint(source.ActualPosition, $"installation_records[{objectId}].actual_position")
+                : null;
+            document.ReplaceInstallationRecord(new InstallationRecord(
+                objectId,
+                ParseEnum<InstallationStatus>(source.Status, "installation status"),
+                updatedAt,
+                source.Note,
+                actualPosition,
+                OptionalNonNegative(source.ActualLengthMillimetres, $"installation_records[{objectId}].actual_length_mm"),
+                source.TestResult,
+                source.PhotoReferences ?? []));
         }
         ValidateReferences(document);
         return document;
@@ -352,6 +391,18 @@ public static class ProjectToml
         Start = [dimension.Start.X, dimension.Start.Y, dimension.Start.Z],
         End = [dimension.End.X, dimension.End.Y, dimension.End.Z],
         Label = dimension.Label,
+    };
+
+    private static InstallationRecordFile ToFile(InstallationRecord record) => new()
+    {
+        ObjectId = record.ObjectId.Value,
+        Status = Name(record.Status),
+        UpdatedAt = record.UpdatedAt?.ToString("O", CultureInfo.InvariantCulture),
+        Note = record.Note,
+        ActualPosition = record.ActualPosition is Point3 position ? [position.X, position.Y, position.Z] : null,
+        ActualLengthMillimetres = record.ActualLengthMillimetres,
+        TestResult = record.TestResult,
+        PhotoReferences = record.PhotoReferences.Count > 0 ? record.PhotoReferences.ToList() : null,
     };
 
     private static void ValidateReferences(ProjectDocument document)
@@ -526,6 +577,21 @@ public static class ProjectToml
 
         [JsonPropertyName("wall_dimensions")]
         public List<WallDimensionFile> WallDimensions { get; set; } = [];
+
+        [JsonPropertyName("installation_records")]
+        public List<InstallationRecordFile> InstallationRecords { get; set; } = [];
+    }
+
+    private sealed class InstallationRecordFile
+    {
+        [JsonPropertyName("object_id")] public string? ObjectId { get; set; }
+        [JsonPropertyName("status")] public string Status { get; set; } = "planned";
+        [JsonPropertyName("updated_at")] public string? UpdatedAt { get; set; }
+        [JsonPropertyName("note")] public string? Note { get; set; }
+        [JsonPropertyName("actual_position")] public double[]? ActualPosition { get; set; }
+        [JsonPropertyName("actual_length_mm")] public double? ActualLengthMillimetres { get; set; }
+        [JsonPropertyName("test_result")] public string? TestResult { get; set; }
+        [JsonPropertyName("photo_references")] public List<string>? PhotoReferences { get; set; }
     }
 
     private sealed class ElectricalRulesFile
