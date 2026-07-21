@@ -135,17 +135,18 @@ synchronize when a local EutherWire host becomes reachable again.
 
 ## Desktop prerequisites
 
-Before anchored AR is worth implementing, the remaining desktop/model work is:
+The desktop/model foundations now present are:
 
-- doors, windows, garage doors, beams, and penetrations as real geometry;
+- doors, windows, garage doors, and penetrations as real geometry;
 - wall elevation views and reliable room-local coordinates;
-- camera orbit and saved viewpoints;
+- camera orbit;
 - exact dimensions and corner offsets;
 - a portable project snapshot format.
 
-Doors and garage doors, wall elevations, reliable room-local coordinates, exact
-dimensions, and orbit navigation are already present. Saved viewpoints and the
-portable snapshot remain prerequisites.
+Saved viewpoints remain useful before anchored AR but do not block the first
+offline checklist. Beams need their own geometry if the actual installation
+requires them; doors, windows, garage doors, and penetrations already share the
+opening model.
 
 ## First acceptance target
 

@@ -89,6 +89,10 @@ static int Run(string[] arguments)
             return JournalCreate(projectDirectory, arguments[2], arguments[3], arguments[4], arguments[5], arguments.Length == 7 ? arguments[6] : null);
         case "journal-apply" when arguments.Length == 3:
             return JournalApply(projectDirectory, arguments[2]);
+        case "snapshot-export" when arguments.Length == 3:
+            return SnapshotExport(projectDirectory, arguments[2]);
+        case "snapshot-import" when arguments.Length == 3:
+            return SnapshotImport(projectDirectory, arguments[2]);
         default:
             Usage();
             return 1;
@@ -192,6 +196,20 @@ static int JournalApply(string projectDirectory, string incomingPath)
     int conflicts = results.Count(result => result.Status == InstallationEventApplyStatus.Conflict);
     Console.WriteLine($"Journal: applied={applied} duplicates={duplicates} conflicts={conflicts} appended={appended}");
     return conflicts > 0 ? 4 : 0;
+}
+
+static int SnapshotExport(string projectDirectory, string outputPath)
+{
+    ProjectSnapshotInfo info = ProjectSnapshot.Export(projectDirectory, outputPath);
+    Console.WriteLine($"Snapshot: {info.Path} schema={info.ProjectSchemaVersion} files={info.FileCount} bytes={info.TotalBytes}");
+    return 0;
+}
+
+static int SnapshotImport(string snapshotPath, string targetProjectDirectory)
+{
+    ProjectSnapshotInfo info = ProjectSnapshot.Import(snapshotPath, targetProjectDirectory);
+    Console.WriteLine($"Imported: {info.Path} schema={info.ProjectSchemaVersion} files={info.FileCount} bytes={info.TotalBytes}");
+    return 0;
 }
 
 static int InsertVertex(string projectDirectory, string routeText, string indexText, string xText, string yText)
@@ -328,4 +346,6 @@ static void Usage()
     Console.Error.WriteLine("  eutherwire install <project.eutherwire> <object-id> <planned|installed|tested|changed|blocked> [actual-length-mm]");
     Console.Error.WriteLine("  eutherwire journal-create <project.eutherwire> <output.jsonl> <object-id> <author-device-id> <status> [actual-length-mm]");
     Console.Error.WriteLine("  eutherwire journal-apply <project.eutherwire> <incoming.jsonl>");
+    Console.Error.WriteLine("  eutherwire snapshot-export <project.eutherwire> <output.eutherwire-snapshot>");
+    Console.Error.WriteLine("  eutherwire snapshot-import <snapshot.eutherwire-snapshot> <new-project.eutherwire>");
 }

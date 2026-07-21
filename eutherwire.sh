@@ -33,6 +33,8 @@ Usage:
   ./eutherwire.sh report [PROJECT]
   ./eutherwire.sh properties [PROJECT]
   ./eutherwire.sh tasks [PROJECT]
+  ./eutherwire.sh snapshot [PROJECT] [OUTPUT.eutherwire-snapshot]
+  ./eutherwire.sh import-snapshot SNAPSHOT NEW_PROJECT
   ./eutherwire.sh export [PROJECT] [OUTPUT.svg]
   ./eutherwire.sh png [PROJECT] [OUTPUT.png]
   ./eutherwire.sh help
@@ -159,6 +161,18 @@ case "$EW_COMMAND" in
         build
         require_project "$EW_PROJECT"
         "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- tasks "$EW_PROJECT"
+        ;;
+    snapshot)
+        EW_PROJECT="${2:-$EW_EXAMPLE_PROJECT}"
+        EW_OUTPUT="${3:-$EW_WORK_DIR/garage.eutherwire-snapshot}"
+        build
+        require_project "$EW_PROJECT"
+        "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- snapshot-export "$EW_PROJECT" "$EW_OUTPUT"
+        ;;
+    import-snapshot)
+        [[ $# -ge 3 ]] || die "import-snapshot requires a snapshot path and a new .eutherwire project path"
+        build
+        "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- snapshot-import "$2" "$3"
         ;;
     export)
         EW_PROJECT="${2:-$EW_EXAMPLE_PROJECT}"

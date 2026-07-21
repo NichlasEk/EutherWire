@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
+using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text;
 using System.Xml.Linq;
 using EutherWire.Document.Analysis;
 using EutherWire.Document.Commands;
@@ -385,6 +387,82 @@ catch (InvalidDataException)
 }
 Require(collisionRejected, "A reused event ID with different content must be rejected instead of hidden as a duplicate.");
 Directory.Delete(journalTestDirectory, recursive: true);
+
+string snapshotTestDirectory = Path.Combine(Path.GetTempPath(), $"eutherwire-snapshot-{Guid.NewGuid():N}");
+string snapshotProjectDirectory = Path.Combine(snapshotTestDirectory, "source.eutherwire");
+Directory.CreateDirectory(Path.Combine(snapshotProjectDirectory, "photos"));
+var snapshotDocument = new ProjectDocument("Portable field project");
+ObjectId snapshotDeviceId = ObjectId.Parse("snapshot-outlet");
+snapshotDocument.Add(new Device(snapshotDeviceId, DeviceKind.Outlet, new Point2(700, 800), "UTT-SNAPSHOT"));
+InstallationRecord snapshotBase = snapshotDocument.RequireInstallationRecord(snapshotDeviceId);
+var snapshotDesired = new InstallationRecord(snapshotDeviceId, InstallationStatus.Tested,
+    note: "Ready for handover", actualPosition: new Point3(702, 799, 1100),
+    testResult: "Passed", photoReferences: ["photos/outlet.jpg"]);
+var snapshotEvent = InstallationEvent.CreateSetRecord(snapshotBase, snapshotDesired, "phone-snapshot",
+    new DateTimeOffset(2026, 7, 21, 19, 0, 0, TimeSpan.Zero),
+    Guid.Parse("01234567-89ab-cdef-0123-456789abcdef"));
+Require(InstallationJournal.Apply(snapshotDocument, snapshotEvent).Status == InstallationEventApplyStatus.Applied,
+    "Snapshot fixture event must apply.");
+ProjectToml.Save(snapshotProjectDirectory, snapshotDocument);
+InstallationJournal.AppendUnique(Path.Combine(snapshotProjectDirectory, InstallationJournal.FileName), [snapshotEvent]);
+byte[] snapshotPhoto = [0xff, 0xd8, 0xff, 0xe0, 0x45, 0x57, 0xff, 0xd9];
+File.WriteAllBytes(Path.Combine(snapshotProjectDirectory, "photos", "outlet.jpg"), snapshotPhoto);
+
+string snapshotOne = Path.Combine(snapshotTestDirectory, "one.eutherwire-snapshot");
+string snapshotTwo = Path.Combine(snapshotTestDirectory, "two.eutherwire-snapshot");
+ProjectSnapshotInfo snapshotInfo = ProjectSnapshot.Export(snapshotProjectDirectory, snapshotOne);
+_ = ProjectSnapshot.Export(snapshotProjectDirectory, snapshotTwo);
+Require(snapshotInfo.FileCount == 3 && File.ReadAllBytes(snapshotOne).SequenceEqual(File.ReadAllBytes(snapshotTwo)),
+    "Equivalent projects must produce byte-identical snapshots containing project, journal, and referenced evidence.");
+string importedSnapshotProject = Path.Combine(snapshotTestDirectory, "imported.eutherwire");
+ProjectSnapshotInfo importedSnapshotInfo = ProjectSnapshot.Import(snapshotOne, importedSnapshotProject);
+ProjectDocument importedSnapshotDocument = ProjectToml.Load(importedSnapshotProject);
+Require(importedSnapshotInfo.FileCount == 3 &&
+        importedSnapshotDocument.RequireInstallationRecord(snapshotDeviceId).Status == InstallationStatus.Tested &&
+        importedSnapshotDocument.RequireInstallationRecord(snapshotDeviceId).PhotoReferences.Single() == "photos/outlet.jpg" &&
+        File.ReadAllBytes(Path.Combine(importedSnapshotProject, "photos", "outlet.jpg")).SequenceEqual(snapshotPhoto) &&
+        InstallationJournal.Read(Path.Combine(importedSnapshotProject, InstallationJournal.FileName)).Single().EventId == snapshotEvent.EventId,
+    "Snapshot import must restore validated project state, journal, and evidence bytes.");
+
+string tamperedSnapshot = Path.Combine(snapshotTestDirectory, "tampered.eutherwire-snapshot");
+File.Copy(snapshotOne, tamperedSnapshot);
+using (var tamperedArchive = ZipFile.Open(tamperedSnapshot, ZipArchiveMode.Update))
+{
+    tamperedArchive.GetEntry(ProjectToml.FileName)!.Delete();
+    ZipArchiveEntry replacement = tamperedArchive.CreateEntry(ProjectToml.FileName);
+    using Stream replacementStream = replacement.Open();
+    replacementStream.Write(Encoding.UTF8.GetBytes("tampered = true\n"));
+}
+bool tamperRejected = false;
+try
+{
+    ProjectSnapshot.Import(tamperedSnapshot, Path.Combine(snapshotTestDirectory, "tampered-import.eutherwire"));
+}
+catch (InvalidDataException)
+{
+    tamperRejected = true;
+}
+Require(tamperRejected, "Snapshot import must reject content whose SHA-256 no longer matches the manifest.");
+
+string traversalSnapshot = Path.Combine(snapshotTestDirectory, "traversal.eutherwire-snapshot");
+using (var traversalArchive = ZipFile.Open(traversalSnapshot, ZipArchiveMode.Create))
+{
+    ZipArchiveEntry traversalEntry = traversalArchive.CreateEntry("../outside.txt");
+    using Stream traversalStream = traversalEntry.Open();
+    traversalStream.WriteByte(1);
+}
+bool traversalRejected = false;
+try
+{
+    ProjectSnapshot.Import(traversalSnapshot, Path.Combine(snapshotTestDirectory, "traversal-import.eutherwire"));
+}
+catch (InvalidDataException)
+{
+    traversalRejected = true;
+}
+Require(traversalRejected && !File.Exists(Path.Combine(snapshotTestDirectory, "outside.txt")),
+    "Snapshot import must reject ZIP traversal before writing any archive entry.");
+Directory.Delete(snapshotTestDirectory, recursive: true);
 
 var electricalDocument = new ProjectDocument("Electrical conductors");
 var fkSpec = ElectricalCableProfiles.Lighting(CableProductKind.Fk, 1.5, 2);

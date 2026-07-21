@@ -235,8 +235,10 @@ same model; the mobile UI does not need to invent a separate task database.
 
 The append-only JSONL event journal is implemented with unique event IDs,
 per-object base revisions, persisted idempotency, and non-destructive conflict
-reporting. The next mobile prerequisite is portable snapshot import/export,
-followed by the first phone checklist shell.
+reporting. Deterministic portable snapshot import/export now packages the
+canonical project, journal, and referenced evidence with integrity checks. The
+data-layer prerequisites are complete; the next slice is the first phone
+checklist shell.
 
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets

@@ -11,6 +11,7 @@ Directory.Build.local.props
 # EutherWire working data
 *.eutherwire/autosave/
 *.eutherwire/exports/
+*.eutherwire-snapshot
 
 # Safe writable projects and exports created by eutherwire.sh
 .eutherwire-work/

@@ -174,6 +174,8 @@ dotnet run --project src/EutherWire.Cli -- install examples/garage.eutherwire ca
 dotnet run --project src/EutherWire.Cli -- install examples/garage.eutherwire camera-north installed
 dotnet run --project src/EutherWire.Cli -- journal-create examples/garage.eutherwire phone-events.jsonl camera-north phone-garage installed
 dotnet run --project src/EutherWire.Cli -- journal-apply examples/garage.eutherwire phone-events.jsonl
+dotnet run --project src/EutherWire.Cli -- snapshot-export examples/garage.eutherwire garage.eutherwire-snapshot
+dotnet run --project src/EutherWire.Cli -- snapshot-import garage.eutherwire-snapshot imported-garage.eutherwire
 dotnet run --project src/EutherWire.Cli -- export-svg examples/garage.eutherwire garage.svg
 dotnet run --project src/EutherWire.Cli -- export-png examples/garage.eutherwire garage.png
 ```
@@ -192,6 +194,13 @@ photo references. Offline updates use the append-only
 `installation-events.jsonl`; duplicate event IDs are harmless and stale base
 revisions become visible conflicts. See
 [installation-records.md](docs/installation-records.md).
+
+Portable `.eutherwire-snapshot` files contain canonical `project.toml`, the
+installation journal when present, and every explicitly referenced photo. A
+deterministic manifest records lengths and SHA-256 hashes. Import refuses an
+existing target directory and validates all paths and contents before moving a
+staged project into place. See
+[portable-snapshots.md](docs/portable-snapshots.md).
 
 SVG and PNG exports are generated directly from document coordinates with stable object
 IDs and deterministic ordering. It is independent of the current desktop zoom,

@@ -45,6 +45,6 @@ dotnet run --project src/EutherWire.Cli -- journal-apply \
   examples/garage.eutherwire phone-events.jsonl
 ```
 
-`install` also creates and records a `desktop-cli` event. The next data-layer
-slice is a portable project snapshot containing `project.toml`, journal, and
-explicitly captured project-relative evidence files.
+`install` also creates and records a `desktop-cli` event. Portable snapshots now
+carry canonical `project.toml`, this journal, and explicitly referenced
+project-relative evidence files; see [portable-snapshots.md](portable-snapshots.md).
