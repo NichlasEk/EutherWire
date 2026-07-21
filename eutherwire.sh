@@ -9,7 +9,8 @@ EW_WORK_DIR="$EW_REPO_DIR/.eutherwire-work"
 EW_DEMO_PROJECT="$EW_WORK_DIR/garage-demo.eutherwire"
 EW_3D_DEMO_PROJECT="$EW_WORK_DIR/garage-3d-demo.eutherwire"
 EW_WALL_DEMO_PROJECT="$EW_WORK_DIR/garage-wall-demo.eutherwire"
-EW_MOBILE_APK="$EW_REPO_DIR/src/EutherWire.Mobile/bin/Debug/net10.0-android/se.eutherwire.mobile-Signed.apk"
+EW_MOBILE_APK="$EW_REPO_DIR/src/EutherWire.Mobile/bin/Release/net10.0-android/android-arm64/publish/se.eutherwire.mobile-Signed.apk"
+EW_ANDROID_KEYSTORE="${EUTHERWIRE_ANDROID_KEYSTORE:-${HOME}/.android/debug.keystore}"
 
 say() {
     printf '\n==> %s\n' "$*"
@@ -64,6 +65,34 @@ build() {
     "$EW_DOTNET" restore EutherWire.slnx --nologo --disable-build-servers -m:1
     say "Building EutherWire"
     "$EW_DOTNET" build EutherWire.slnx --nologo --no-restore --disable-build-servers -m:1
+}
+
+build_mobile() {
+    [[ -f "$EW_ANDROID_KEYSTORE" ]] || die "Android signing keystore was not found: $EW_ANDROID_KEYSTORE"
+    "$EW_DOTNET" build-server shutdown >/dev/null 2>&1 || true
+    say "Building signed ARM64 Android package"
+    "$EW_DOTNET" publish src/EutherWire.Mobile/EutherWire.Mobile.csproj \
+        --configuration Release \
+        --framework net10.0-android \
+        --runtime android-arm64 \
+        -m:1 \
+        -nodeReuse:false \
+        -p:PublishTrimmed=false \
+        -p:RunAOTCompilation=false \
+        -p:AndroidEnableProfiledAot=false \
+        -p:AndroidPackageFormat=apk \
+        -p:AndroidKeyStore=true \
+        -p:AndroidSigningKeyStore="$EW_ANDROID_KEYSTORE" \
+        -p:AndroidSigningStorePass=android \
+        -p:AndroidSigningKeyAlias=androiddebugkey \
+        -p:AndroidSigningKeyPass=android
+    [[ -f "$EW_MOBILE_APK" ]] || die "Android APK was not produced at: $EW_MOBILE_APK"
+
+    local sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/opt/android-sdk}}"
+    local apksigner
+    apksigner="$(find "$sdk_root/build-tools" -mindepth 2 -maxdepth 2 -type f -name apksigner -print 2>/dev/null | sort -V | tail -n 1)"
+    [[ -x "$apksigner" ]] || die "Android apksigner was not found under: $sdk_root/build-tools"
+    "$apksigner" verify --verbose "$EW_MOBILE_APK" || die "Android rejected the generated APK signature"
 }
 
 require_project() {
@@ -178,15 +207,13 @@ case "$EW_COMMAND" in
         "$EW_DOTNET" run --project src/EutherWire.Cli/EutherWire.Cli.csproj --no-build -- snapshot-import "$2" "$3"
         ;;
     mobile-build)
-        build
-        [[ -f "$EW_MOBILE_APK" ]] || die "Android APK was not produced at: $EW_MOBILE_APK"
+        build_mobile
         say "Android APK ready"
         printf '%s\n' "$EW_MOBILE_APK"
         ;;
     mobile-install)
         command -v adb >/dev/null 2>&1 || die "adb was not found in PATH"
-        build
-        [[ -f "$EW_MOBILE_APK" ]] || die "Android APK was not produced at: $EW_MOBILE_APK"
+        build_mobile
         say "Installing EutherWire on the connected Android device"
         adb install -r "$EW_MOBILE_APK"
         adb shell monkey -p se.eutherwire.mobile 1 >/dev/null 2>&1 || true

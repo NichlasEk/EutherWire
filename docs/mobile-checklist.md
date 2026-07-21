@@ -14,8 +14,13 @@ newer, and optionally `adb`. On the current development machine:
 ./eutherwire.sh mobile-install
 ```
 
-The first command prints the signed debug APK path. `mobile-install` installs
-it on the USB-connected device. Android's normal APK sideloading also works.
+The first command builds a release-mode ARM64 test APK, signs it with the
+machine's stable Android debug key, verifies the APK signature with Android's
+own `apksigner`, and prints the path. `mobile-install` installs it on the
+USB-connected device. Android's normal APK sideloading also works. This test
+signature is suitable for direct installation and repeatable updates from this
+development machine; a protected EutherWire release key replaces it before a
+public production release.
 
 ## Field workflow
 
