@@ -149,8 +149,11 @@ synchronize when a local EutherWire host becomes reachable again.
   defaults, exact XYZ fallback fields, and large constrained 2D move handles;
 - implemented: render placed objects in 2D/3D and expose them immediately as
   installation tasks through the shared document model;
-- next: route conduits and cables between placed objects with touch-friendly
-  vertices and port snapping.
+- implemented: draw typed cables and real 16/20/25 mm conduit profiles with
+  touch-friendly bend points and snapping to actual device ports;
+- implemented: select complete routes, drag numbered vertices in 100 mm steps,
+  edit metadata, delete routes, render them in 2D/3D, and list them in Install;
+- next: assign cables to conduits and show fill/thermal feedback while routing.
 
 ### M2: Camera orientation preview
 

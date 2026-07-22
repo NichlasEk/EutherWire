@@ -61,6 +61,22 @@ public sealed class MainActivity : Activity
         MountingSurface.SouthWallExterior,
         MountingSurface.WestWallExterior,
     ];
+    private static readonly CableKind[] MobileCableKinds =
+    [
+        CableKind.Cat6,
+        CableKind.Cat6A,
+        CableKind.Mains3G25,
+        CableKind.Mains5G6,
+        CableKind.FibreDuplex,
+        CableKind.Coax,
+        CableKind.LowVoltageDc,
+    ];
+    private static readonly ConduitProfile[] MobileConduitProfiles =
+    [
+        new(16, 12.0, "pipelife-halovolt-750n-16", "1414864"),
+        new(20, 15.8, "pipelife-halovolt-750n-20", "1414865"),
+        new(25, 20.2, "pipelife-halovolt-750n-25", "1414866"),
+    ];
     private ProjectDocument? _document;
     private string? _projectDirectory;
     private LinearLayout? _taskList;
@@ -73,10 +89,35 @@ public sealed class MainActivity : Activity
     private TextView? _deviceSelection;
     private Button? _editDeviceButton;
     private ObjectId? _selectedDeviceId;
+    private ObjectId? _selectedRouteId;
+    private RouteDraftState? _routeDraft;
     private MobileMode _mode = MobileMode.Survey;
     private RoomPreviewMode _previewMode = RoomPreviewMode.Plan;
 
     private enum MobileMode { Survey, Design, Install }
+
+    private sealed class RouteDraftState(RoomPreviewTool tool, string label)
+    {
+        public RoomPreviewTool Tool { get; } = tool;
+        public string Label { get; } = label;
+        public CableKind CableKind { get; init; } = CableKind.Cat6;
+        public ConduitProfile? Conduit { get; init; }
+        public List<Point3> Points { get; } = [];
+        public PortReference? From { get; set; }
+        public PortReference? To { get; set; }
+    }
+
+    private sealed record ConduitProfile(double NominalMillimetres, double InnerMillimetres, string ProductId, string ENumber)
+    {
+        public ConduitProduct ToProduct() => new(
+            ProductId,
+            "Pipelife",
+            $"Halovolt PP HF 750N LF {NominalMillimetres:0}",
+            ENumber,
+            NominalMillimetres,
+            InnerMillimetres,
+            "https://www.pipelife.se/");
+    }
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
@@ -313,13 +354,23 @@ public sealed class MainActivity : Activity
 
         if (_selectedDeviceId is ObjectId selectedId && !_document.Devices.ContainsKey(selectedId))
             _selectedDeviceId = null;
+        if (_selectedRouteId is ObjectId selectedRouteId && !_document.Cables.ContainsKey(selectedRouteId) && !_document.Conduits.ContainsKey(selectedRouteId))
+            _selectedRouteId = null;
+        RoomRouteDraftPreview? routePreview = _routeDraft is null
+            ? null
+            : new RoomRouteDraftPreview(_routeDraft.Tool, _routeDraft.Points);
         _roomPreview = new RoomPreviewView(
             this,
             _document,
             _previewMode,
             _selectedDeviceId,
+            _selectedRouteId,
+            routePreview,
             SelectDeviceInPreview,
-            SaveDeviceMovement);
+            SaveDeviceMovement,
+            SelectRouteInPreview,
+            SaveRouteVertexMovement,
+            AddRouteDraftPoint);
         var previewParameters = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, Dp(420));
         previewParameters.SetMargins(0, Dp(8), 0, Dp(8));
         _taskList.AddView(_roomPreview, previewParameters);
@@ -332,9 +383,38 @@ public sealed class MainActivity : Activity
         _editDeviceButton.Click += (_, _) =>
         {
             if (_selectedDeviceId is ObjectId id) ShowDeviceDialog(id);
+            else if (_selectedRouteId is ObjectId routeId) ShowRouteDialog(routeId);
         };
         placementActions.AddView(_editDeviceButton, Weighted());
         _taskList.AddView(placementActions, MatchWrap());
+
+        var routingActions = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        Button cable = ActionButton(_routeDraft?.Tool == RoomPreviewTool.CableRoute ? "CABLE ACTIVE" : "+ DRAW CABLE");
+        cable.Enabled = _routeDraft is null;
+        cable.Click += (_, _) => ShowCablePalette();
+        routingActions.AddView(cable, Weighted());
+        Button conduit = ActionButton(_routeDraft?.Tool == RoomPreviewTool.ConduitRoute ? "CONDUIT ACTIVE" : "+ DRAW CONDUIT");
+        conduit.Enabled = _routeDraft is null;
+        conduit.Click += (_, _) => ShowConduitPalette();
+        routingActions.AddView(conduit, Weighted());
+        _taskList.AddView(routingActions, MatchWrap());
+
+        if (_routeDraft is not null)
+        {
+            var draftActions = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+            Button finish = ActionButton("FINISH ROUTE");
+            finish.Enabled = _routeDraft.Points.Count >= 2;
+            finish.Click += (_, _) => FinishRouteDraft();
+            draftActions.AddView(finish, Weighted());
+            Button undoPoint = ActionButton("UNDO POINT");
+            undoPoint.Enabled = _routeDraft.Points.Count > 0;
+            undoPoint.Click += (_, _) => UndoRouteDraftPoint();
+            draftActions.AddView(undoPoint, Weighted());
+            Button cancelRoute = ActionButton("CANCEL ROUTE");
+            cancelRoute.Click += (_, _) => CancelRouteDraft();
+            draftActions.AddView(cancelRoute, Weighted());
+            _taskList.AddView(draftActions, MatchWrap());
+        }
         _deviceSelection = Text(string.Empty, 12, "#f2c94c");
         _taskList.AddView(_deviceSelection);
         UpdateDeviceSelectionUi();
@@ -348,18 +428,30 @@ public sealed class MainActivity : Activity
         previewActions.AddView(survey, Weighted());
         _taskList.AddView(previewActions, MatchWrap());
 
-        string gesture = _previewMode == RoomPreviewMode.Plan
-            ? "DRAG TO PAN · PINCH TO ZOOM"
-            : "DRAG TO ROTATE · PINCH TO ZOOM";
+        string gesture = _routeDraft is not null
+            ? $"{_routeDraft.Label} · TAP PORTS OR FREE POINTS · {_routeDraft.Points.Count} POINT{(_routeDraft.Points.Count == 1 ? string.Empty : "S")}"
+            : _previewMode == RoomPreviewMode.Plan
+                ? "DRAG TO PAN · PINCH TO ZOOM"
+                : "DRAG TO ROTATE · PINCH TO ZOOM";
         _taskList.AddView(Text(gesture, 12, "#55d7ff"));
         _taskList.AddView(Text(
-            "Tap a device to select it. In 2D, drag the large yellow handle to move it in 100 mm steps; mounted devices stay constrained to their wall, floor, or ceiling.",
+            _routeDraft is not null
+                ? "Green circles are real device ports. Tap a start port, add free bend points, and tap the destination port; a cable finishes automatically when both endpoints are connected."
+                : "Tap a device or route to select it. In 2D, drag large yellow handles to move devices or route vertices in 100 mm steps.",
             14, "#dff7ff"));
     }
 
     private void SelectDeviceInPreview(ObjectId? id)
     {
         _selectedDeviceId = id;
+        if (id is not null) _selectedRouteId = null;
+        UpdateDeviceSelectionUi();
+    }
+
+    private void SelectRouteInPreview(ObjectId? id)
+    {
+        _selectedRouteId = id;
+        if (id is not null) _selectedDeviceId = null;
         UpdateDeviceSelectionUi();
     }
 
@@ -373,17 +465,39 @@ public sealed class MainActivity : Activity
         UpdateDeviceSelectionUi();
     }
 
+    private void SaveRouteVertexMovement(ObjectId id, int vertexIndex)
+    {
+        if (_document is null || _projectDirectory is null) return;
+        _selectedRouteId = id;
+        _selectedDeviceId = null;
+        ProjectToml.Save(_projectDirectory, _document);
+        Point3 point = RoutePoints(id)[vertexIndex];
+        ShowMessage($"Moved route point {vertexIndex + 1} · X {point.X:0} · Y {point.Y:0} · Z {point.Z:0} mm");
+        UpdateDeviceSelectionUi();
+    }
+
     private void UpdateDeviceSelectionUi()
     {
         Device? selectedDevice = null;
         if (_document is not null && _selectedDeviceId is ObjectId id)
             _document.Devices.TryGetValue(id, out selectedDevice);
-        if (_editDeviceButton is not null) _editDeviceButton.Enabled = selectedDevice is not null;
+        CableRoute? selectedCable = null;
+        Conduit? selectedConduit = null;
+        if (_document is not null && _selectedRouteId is ObjectId routeId)
+        {
+            _document.Cables.TryGetValue(routeId, out selectedCable);
+            _document.Conduits.TryGetValue(routeId, out selectedConduit);
+        }
+        if (_editDeviceButton is not null) _editDeviceButton.Enabled = selectedDevice is not null || selectedCable is not null || selectedConduit is not null;
         if (_deviceSelection is not null)
         {
             _deviceSelection.Text = selectedDevice is not null
                 ? $"SELECTED · {selectedDevice.Label} · {Name(selectedDevice.Kind.ToString())} · X {selectedDevice.Position.X:0} · Y {selectedDevice.Position.Y:0} · Z {selectedDevice.ElevationMillimetres:0} mm"
-                : "SELECT A DEVICE IN THE 2D PLAN";
+                : selectedCable is not null
+                    ? $"SELECTED · {selectedCable.Label} · {CableKindLabel(selectedCable.Kind)} · {selectedCable.Route.LengthMillimetres / 1000:0.##} m · {selectedCable.Route.Points.Count} POINTS"
+                    : selectedConduit is not null
+                        ? $"SELECTED · {selectedConduit.Label} · Ø {selectedConduit.NominalDiameterMillimetres ?? selectedConduit.InnerDiameterMillimetres:0.#} mm · {selectedConduit.Route.LengthMillimetres / 1000:0.##} m · {selectedConduit.Route.Points.Count} POINTS"
+                        : "SELECT A DEVICE OR ROUTE IN THE 2D PLAN";
         }
     }
 
@@ -400,6 +514,253 @@ public sealed class MainActivity : Activity
         };
         return button;
     }
+
+    private void ShowCablePalette()
+    {
+        if (_routeDraft is not null) return;
+        var builder = new AlertDialog.Builder(this);
+        builder.SetTitle("Cable type");
+        builder.SetItems(MobileCableKinds.Select(CableKindLabel).ToArray(), (_, args) =>
+        {
+            CableKind kind = MobileCableKinds[args.Which];
+            int number = (_document?.Cables.Count ?? 0) + 1;
+            _routeDraft = new RouteDraftState(RoomPreviewTool.CableRoute, $"{CableKindLabel(kind)}-{number:00}") { CableKind = kind };
+            _previewMode = RoomPreviewMode.Plan;
+            _selectedDeviceId = null;
+            _selectedRouteId = null;
+            ShowMessage("Cable route started. Tap its first port.");
+            RenderTasks();
+        });
+        builder.SetNegativeButton("CANCEL", (_, _) => { });
+        builder.Show();
+    }
+
+    private void ShowConduitPalette()
+    {
+        if (_routeDraft is not null) return;
+        var builder = new AlertDialog.Builder(this);
+        builder.SetTitle("Conduit size");
+        builder.SetItems(MobileConduitProfiles.Select(profile => $"{profile.NominalMillimetres:0} MM · INNER {profile.InnerMillimetres:0.#} MM").ToArray(), (_, args) =>
+        {
+            ConduitProfile profile = MobileConduitProfiles[args.Which];
+            int number = (_document?.Conduits.Count ?? 0) + 1;
+            _routeDraft = new RouteDraftState(RoomPreviewTool.ConduitRoute, $"RÖR-{number:00}") { Conduit = profile };
+            _previewMode = RoomPreviewMode.Plan;
+            _selectedDeviceId = null;
+            _selectedRouteId = null;
+            ShowMessage($"{profile.NominalMillimetres:0} mm conduit started. Tap ports or free points.");
+            RenderTasks();
+        });
+        builder.SetNegativeButton("CANCEL", (_, _) => { });
+        builder.Show();
+    }
+
+    private void AddRouteDraftPoint(Point3 requested, PortReference? port)
+    {
+        if (_document is null || _routeDraft is null) return;
+        Point3 point;
+        if (port is PortReference reference)
+        {
+            point = PortPosition(reference);
+            if (_routeDraft.Tool == RoomPreviewTool.CableRoute)
+            {
+                if (_routeDraft.Points.Count == 0) _routeDraft.From = reference;
+                else _routeDraft.To = reference;
+            }
+        }
+        else
+        {
+            SpaceVolume space = _document.Space;
+            point = new Point3(
+                Math.Clamp(Math.Round(requested.X / 100) * 100, space.Origin.X, space.Origin.X + space.WidthMillimetres),
+                Math.Clamp(Math.Round(requested.Y / 100) * 100, space.Origin.Y, space.Origin.Y + space.DepthMillimetres),
+                Math.Round(requested.Z / 100) * 100);
+        }
+        if (_routeDraft.Points.Count > 0 && _routeDraft.Points[^1] == point)
+        {
+            ShowMessage("Choose a different route point.", error: true);
+            return;
+        }
+        _routeDraft.Points.Add(point);
+        if (_routeDraft.Tool == RoomPreviewTool.CableRoute && _routeDraft.From is not null && _routeDraft.To is not null && _routeDraft.Points.Count >= 2)
+        {
+            FinishRouteDraft();
+            return;
+        }
+        ShowMessage(port is PortReference snapped
+            ? $"Snapped to {DevicePortLabel(snapped)}."
+            : $"Added bend point {_routeDraft.Points.Count}.");
+        RenderTasks();
+    }
+
+    private void FinishRouteDraft()
+    {
+        if (_document is null || _projectDirectory is null || _routeDraft is null || _routeDraft.Points.Count < 2) return;
+        try
+        {
+            var route = new Polyline(_routeDraft.Points);
+            ObjectId id = ObjectId.New();
+            if (_routeDraft.Tool == RoomPreviewTool.CableRoute)
+            {
+                CableKind kind = _routeDraft.CableKind;
+                new AddCableCommand(new CableRoute(
+                    id,
+                    _routeDraft.Label,
+                    kind,
+                    route,
+                    _routeDraft.From,
+                    _routeDraft.To,
+                    Electrical: ElectricalCableProfiles.Infer(kind))).Apply(_document);
+            }
+            else
+            {
+                ConduitProfile profile = _routeDraft.Conduit ?? throw new InvalidOperationException("Conduit profile is missing.");
+                new AddConduitCommand(new Conduit(
+                    id,
+                    _routeDraft.Label,
+                    profile.InnerMillimetres,
+                    route,
+                    InstallationMethod.Concealed,
+                    profile.NominalMillimetres,
+                    profile.ProductId)).Apply(_document);
+            }
+            string label = _routeDraft.Label;
+            _routeDraft = null;
+            _selectedRouteId = id;
+            _selectedDeviceId = null;
+            ProjectToml.Save(_projectDirectory, _document);
+            ShowMessage($"Created {label}.");
+            RenderTasks();
+        }
+        catch (Exception exception)
+        {
+            ShowMessage($"Could not finish route: {exception.Message}", error: true);
+        }
+    }
+
+    private void UndoRouteDraftPoint()
+    {
+        if (_routeDraft is null || _routeDraft.Points.Count == 0) return;
+        if (_routeDraft.To is not null) _routeDraft.To = null;
+        _routeDraft.Points.RemoveAt(_routeDraft.Points.Count - 1);
+        if (_routeDraft.Points.Count == 0) _routeDraft.From = null;
+        ShowMessage("Removed the last route point.");
+        RenderTasks();
+    }
+
+    private void CancelRouteDraft()
+    {
+        _routeDraft = null;
+        ShowMessage("Route cancelled.");
+        RenderTasks();
+    }
+
+    private Point3 PortPosition(PortReference reference)
+    {
+        if (_document is null) throw new InvalidOperationException("No project is loaded.");
+        Point2 position = DocumentHandleEditor.RequirePosition(
+            _document,
+            new EditHandleId(reference.DeviceId, EditHandleKind.Port, Name: reference.PortId));
+        return new Point3(position.X, position.Y, _document.RequireDevice(reference.DeviceId).ElevationMillimetres);
+    }
+
+    private string DevicePortLabel(PortReference reference) =>
+        $"{_document!.RequireDevice(reference.DeviceId).Label}:{reference.PortId}";
+
+    private void ShowRouteDialog(ObjectId id)
+    {
+        if (_document is null) return;
+        CableRoute? cable = _document.Cables.TryGetValue(id, out CableRoute? foundCable) ? foundCable : null;
+        Conduit? conduit = _document.Conduits.TryGetValue(id, out Conduit? foundConduit) ? foundConduit : null;
+        if (cable is null && conduit is null) return;
+        var form = Form();
+        EditText label = NumberOrTextField(cable?.Label ?? conduit!.Label, numeric: false);
+        AddField(form, "LABEL", label);
+        var profile = new Spinner(this);
+        if (cable is not null)
+        {
+            profile.Adapter = SpinnerAdapter(MobileCableKinds.Select(CableKindLabel).ToArray());
+            profile.SetSelection(Math.Max(Array.IndexOf(MobileCableKinds, cable.Kind), 0));
+            AddField(form, "CABLE TYPE", profile);
+        }
+        else
+        {
+            profile.Adapter = SpinnerAdapter(MobileConduitProfiles.Select(item => $"{item.NominalMillimetres:0} MM").ToArray());
+            int index = Array.FindIndex(MobileConduitProfiles, item => item.NominalMillimetres == conduit!.NominalDiameterMillimetres);
+            profile.SetSelection(Math.Max(index, 0));
+            AddField(form, "CONDUIT SIZE", profile);
+        }
+        form.AddView(Text($"ROUTE LENGTH · {(cable?.Route ?? conduit!.Route).LengthMillimetres / 1000:0.##} m", 12, "#9eb0bb"));
+        var builder = new AlertDialog.Builder(this);
+        builder.SetTitle(cable is not null ? "Edit cable" : "Edit conduit");
+        builder.SetView(form);
+        builder.SetNegativeButton("CANCEL", (_, _) => { });
+        builder.SetNeutralButton("DELETE", (_, _) => DeleteRoute(id));
+        builder.SetPositiveButton("SAVE", (_, _) => SaveRouteDetails(id, label.Text ?? string.Empty, profile.SelectedItemPosition));
+        builder.Show();
+    }
+
+    private void SaveRouteDetails(ObjectId id, string label, int profileIndex)
+    {
+        if (_document is null || _projectDirectory is null) return;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(label)) throw new ArgumentException("Route label is required.");
+            new SetObjectLabelCommand(id, label.Trim()).Apply(_document);
+            if (_document.Cables.ContainsKey(id))
+            {
+                new SetCableKindCommand(id, MobileCableKinds[profileIndex]).Apply(_document);
+            }
+            else
+            {
+                ConduitProfile profile = MobileConduitProfiles[profileIndex];
+                new SetConduitProductCommand(id, profile.ToProduct()).Apply(_document);
+            }
+            ProjectToml.Save(_projectDirectory, _document);
+            ShowMessage($"Updated {label.Trim()}.");
+            RenderTasks();
+        }
+        catch (Exception exception)
+        {
+            ShowMessage($"Could not update route: {exception.Message}", error: true);
+        }
+    }
+
+    private void DeleteRoute(ObjectId id)
+    {
+        if (_document is null || _projectDirectory is null) return;
+        try
+        {
+            string label = _document.Cables.TryGetValue(id, out CableRoute? cable) ? cable.Label : _document.RequireConduit(id).Label;
+            new DeleteObjectCommand(id).Apply(_document);
+            _selectedRouteId = null;
+            ProjectToml.Save(_projectDirectory, _document);
+            ShowMessage($"Deleted {label}.");
+            RenderTasks();
+        }
+        catch (Exception exception)
+        {
+            ShowMessage($"Could not delete route: {exception.Message}", error: true);
+        }
+    }
+
+    private IReadOnlyList<Point3> RoutePoints(ObjectId id)
+    {
+        if (_document!.Cables.TryGetValue(id, out CableRoute? cable)) return cable.Route.SpatialPoints;
+        return _document.RequireConduit(id).Route.SpatialPoints;
+    }
+
+    private static string CableKindLabel(CableKind kind) => kind switch
+    {
+        CableKind.Cat6 => "CAT6",
+        CableKind.Cat6A => "CAT6A",
+        CableKind.Mains3G25 => "EKRK 3G2.5",
+        CableKind.Mains5G6 => "EKRK 5G6",
+        CableKind.FibreDuplex => "FIBRE DUPLEX",
+        CableKind.Coax => "COAX",
+        CableKind.LowVoltageDc => "12 V DC",
+        _ => "CUSTOM",
+    };
 
     private void ShowDevicePalette()
     {

@@ -213,6 +213,10 @@ that same measured shell; drag pans or rotates and pinch controls zoom. Mobile
 Design can place distribution boards, junction boxes, outlets, lights, cameras, PoE
 switches, and access points with mounting surfaces, exact XYZ fallback fields,
 and large 2D move handles that keep mounted objects constrained to the shell.
+It can also draw typed cables and 16/20/25 mm conduits directly in the plan.
+Cable endpoints snap to real device ports, free taps create bend points, and
+every saved route exposes large numbered vertices for 100 mm step editing. The
+same routes render in 2D and 3D and immediately become Install tasks.
 
 ```sh
 ./eutherwire.sh mobile-build

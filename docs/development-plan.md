@@ -246,9 +246,12 @@ ceiling dimensions; fixed openings by wall/offset/sill; portable project export;
 and a touch-driven 2D plan plus rotatable 3D shell review. Measured openings
 immediately appear as installation tasks. Mobile Design now also places common
 devices with mounting-surface constraints, exact XYZ fields, and large 2D move
-handles; the same objects render in 3D and appear in Install. The next slice is
-touch-driven conduit/cable routing with port snapping. Project-linked photo
-capture and camera/gyro guidance follow the measured baseline.
+handles; the same objects render in 3D and appear in Install. Mobile Design now
+also draws typed cables and 16/20/25 mm conduits, snaps cable endpoints to real
+ports, and edits saved routes through large numbered vertices. Routes render in
+2D/3D and appear in Install. The next slice assigns cables to conduits and
+surfaces fill/thermal feedback while planning. Project-linked photo capture and
+camera/gyro guidance follow the measured baseline.
 
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets

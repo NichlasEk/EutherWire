@@ -1,3 +1,4 @@
+using System.Globalization;
 using Android.Content;
 using Android.Graphics;
 using Android.Views;
@@ -15,11 +16,23 @@ public enum RoomPreviewMode
     Room3D,
 }
 
+public enum RoomPreviewTool
+{
+    Navigate,
+    CableRoute,
+    ConduitRoute,
+}
+
+public sealed record RoomRouteDraftPreview(RoomPreviewTool Tool, IReadOnlyList<Point3> Points);
+
 public sealed class RoomPreviewView : View
 {
     private readonly ProjectDocument _document;
     private readonly Action<ObjectId?> _selectionChanged;
     private readonly Action<ObjectId> _deviceMoved;
+    private readonly Action<ObjectId?> _routeSelectionChanged;
+    private readonly Action<ObjectId, int> _routeVertexMoved;
+    private readonly Action<Point3, PortReference?> _routePointTapped;
     private readonly ScaleGestureDetector _scaleDetector;
     private readonly Paint _paint = new(PaintFlags.AntiAlias);
     private float _lastX;
@@ -30,21 +43,36 @@ public sealed class RoomPreviewView : View
     private double _yaw = -0.72;
     private double _pitch = 0.58;
     private ObjectId? _draggedDeviceId;
+    private ObjectId? _draggedRouteId;
+    private int _draggedRouteVertex = -1;
     private bool _dragMoved;
+    private float _downX;
+    private float _downY;
+    private bool _routeTapCandidate;
 
     public RoomPreviewView(
         Context context,
         ProjectDocument document,
         RoomPreviewMode mode,
         ObjectId? selectedDeviceId,
+        ObjectId? selectedRouteId,
+        RoomRouteDraftPreview? routeDraft,
         Action<ObjectId?> selectionChanged,
-        Action<ObjectId> deviceMoved) : base(context)
+        Action<ObjectId> deviceMoved,
+        Action<ObjectId?> routeSelectionChanged,
+        Action<ObjectId, int> routeVertexMoved,
+        Action<Point3, PortReference?> routePointTapped) : base(context)
     {
         _document = document;
         _selectionChanged = selectionChanged;
         _deviceMoved = deviceMoved;
+        _routeSelectionChanged = routeSelectionChanged;
+        _routeVertexMoved = routeVertexMoved;
+        _routePointTapped = routePointTapped;
         Mode = mode;
         SelectedDeviceId = selectedDeviceId;
+        SelectedRouteId = selectedRouteId;
+        RouteDraft = routeDraft;
         _scaleDetector = new ScaleGestureDetector(context, new ScaleListener(this));
         SetBackgroundColor(Color.ParseColor("#07131a"));
         ContentDescription = mode == RoomPreviewMode.Plan
@@ -54,6 +82,8 @@ public sealed class RoomPreviewView : View
 
     public RoomPreviewMode Mode { get; }
     public ObjectId? SelectedDeviceId { get; private set; }
+    public ObjectId? SelectedRouteId { get; private set; }
+    public RoomRouteDraftPreview? RouteDraft { get; }
 
     public void ResetView()
     {
@@ -75,12 +105,38 @@ public sealed class RoomPreviewView : View
                 Parent?.RequestDisallowInterceptTouchEvent(true);
                 _lastX = motionEvent.GetX();
                 _lastY = motionEvent.GetY();
+                _downX = _lastX;
+                _downY = _lastY;
                 _dragMoved = false;
-                if (Mode == RoomPreviewMode.Plan && HitPlanDevice(_lastX, _lastY) is ObjectId deviceId)
+                _routeTapCandidate = RouteDraft is not null && Mode == RoomPreviewMode.Plan;
+                _draggedRouteId = null;
+                _draggedRouteVertex = -1;
+                if (_routeTapCandidate)
+                {
+                    _draggedDeviceId = null;
+                }
+                else if (Mode == RoomPreviewMode.Plan && HitSelectedRouteVertex(_lastX, _lastY) is (ObjectId routeId, int vertexIndex))
+                {
+                    _draggedRouteId = routeId;
+                    _draggedRouteVertex = vertexIndex;
+                    _draggedDeviceId = null;
+                }
+                else if (Mode == RoomPreviewMode.Plan && HitPlanDevice(_lastX, _lastY) is ObjectId deviceId)
                 {
                     SelectedDeviceId = deviceId;
+                    SelectedRouteId = null;
                     _draggedDeviceId = deviceId;
                     _selectionChanged(deviceId);
+                    _routeSelectionChanged(null);
+                    Invalidate();
+                }
+                else if (Mode == RoomPreviewMode.Plan && HitPlanRoute(_lastX, _lastY) is ObjectId selectedRouteId)
+                {
+                    SelectedDeviceId = null;
+                    SelectedRouteId = selectedRouteId;
+                    _draggedDeviceId = null;
+                    _selectionChanged(null);
+                    _routeSelectionChanged(selectedRouteId);
                     Invalidate();
                 }
                 else
@@ -93,7 +149,26 @@ public sealed class RoomPreviewView : View
                 float y = motionEvent.GetY();
                 float dx = x - _lastX;
                 float dy = y - _lastY;
-                if (Mode == RoomPreviewMode.Plan && _draggedDeviceId is ObjectId draggedDeviceId)
+                if (_routeTapCandidate)
+                {
+                    if (Math.Abs(x - _downX) > Dp(10) || Math.Abs(y - _downY) > Dp(10))
+                        _routeTapCandidate = false;
+                }
+                else if (Mode == RoomPreviewMode.Plan && _draggedRouteId is ObjectId draggedRouteId && _draggedRouteVertex >= 0)
+                {
+                    Point3 current = RouteSpatialPoints(draggedRouteId)[_draggedRouteVertex];
+                    Point3 destination = PlanScreenToDocument(x, y, current.Z);
+                    destination = new Point3(
+                        Math.Round(destination.X / 100) * 100,
+                        Math.Round(destination.Y / 100) * 100,
+                        current.Z);
+                    DocumentHandleEditor.SetSpatialPosition(
+                        _document,
+                        new EditHandleId(draggedRouteId, EditHandleKind.Vertex, _draggedRouteVertex),
+                        destination);
+                    _dragMoved = true;
+                }
+                else if (Mode == RoomPreviewMode.Plan && _draggedDeviceId is ObjectId draggedDeviceId)
                 {
                     Point3 destination = PlanScreenToDocument(x, y, _document.RequireDevice(draggedDeviceId).ElevationMillimetres);
                     destination = new Point3(
@@ -123,9 +198,20 @@ public sealed class RoomPreviewView : View
             case MotionEventActions.Up:
             case MotionEventActions.Cancel:
                 Parent?.RequestDisallowInterceptTouchEvent(false);
+                if (_routeTapCandidate && motionEvent.ActionMasked == MotionEventActions.Up)
+                {
+                    Point3 point = PlanScreenToDocument(motionEvent.GetX(), motionEvent.GetY(), RouteDraft?.Points.LastOrDefault().Z ?? 0);
+                    PortReference? port = HitPlanPort(motionEvent.GetX(), motionEvent.GetY());
+                    _routePointTapped(point, port);
+                }
                 if (_draggedDeviceId is ObjectId movedDeviceId && _dragMoved)
                     _deviceMoved(movedDeviceId);
+                if (_draggedRouteId is ObjectId movedRouteId && _dragMoved)
+                    _routeVertexMoved(movedRouteId, _draggedRouteVertex);
                 _draggedDeviceId = null;
+                _draggedRouteId = null;
+                _draggedRouteVertex = -1;
+                _routeTapCandidate = false;
                 PerformClick();
                 return true;
             default:
@@ -163,12 +249,14 @@ public sealed class RoomPreviewView : View
         FillRect(canvas, left - wall, top - wall, right + wall, bottom + wall, "#263b47");
         FillRect(canvas, left, top, right, bottom, "#0d202a");
         DrawPlanGrid(canvas, left, top, right, bottom, scale);
+        DrawPlanRoutes(canvas, space, left, top, scale);
         StrokeRect(canvas, left, top, right, bottom, "#72dfff", Dp(1.4f));
 
         foreach (BuildingOpening opening in _document.Openings.Values.OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase))
             DrawPlanOpening(canvas, opening, space, left, top, scale, wall);
         foreach (Device device in _document.Devices.Values.OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase))
             DrawPlanDevice(canvas, device, space, left, top, scale);
+        if (RouteDraft is not null) DrawPlanPorts(canvas, space, left, top, scale);
 
         DrawText(canvas, $"{space.WidthMillimetres / 1000:0.###} m", (left + right) / 2, top - Dp(13), "#dff7ff", Dp(12), Paint.Align.Center!);
         DrawText(canvas, $"{space.DepthMillimetres / 1000:0.###} m", left - Dp(15), (top + bottom) / 2, "#dff7ff", Dp(12), Paint.Align.Center!, -90);
@@ -184,6 +272,53 @@ public sealed class RoomPreviewView : View
         if (step < Dp(16)) return;
         for (float x = left; x <= right; x += step) DrawLine(canvas, x, top, x, bottom, "#173542", Dp(0.7f));
         for (float y = top; y <= bottom; y += step) DrawLine(canvas, left, y, right, y, "#173542", Dp(0.7f));
+    }
+
+    private void DrawPlanRoutes(Canvas canvas, SpaceVolume space, float left, float top, float scale)
+    {
+        foreach (Conduit conduit in _document.Conduits.Values.OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase))
+            DrawPlanRoute(canvas, conduit.Id, conduit.Route.SpatialPoints, "#4b91ad", Dp(6), space, left, top, scale);
+        foreach (CableRoute cable in _document.Cables.Values.OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase))
+            DrawPlanRoute(canvas, cable.Id, cable.Route.SpatialPoints, CableColour(cable.Kind), Dp(3), space, left, top, scale);
+        if (RouteDraft is not null)
+        {
+            string colour = RouteDraft.Tool == RoomPreviewTool.CableRoute ? "#f2c94c" : "#55d7ff";
+            DrawPlanRoute(canvas, null, RouteDraft.Points, colour, Dp(4), space, left, top, scale, draft: true);
+        }
+    }
+
+    private void DrawPlanRoute(Canvas canvas, ObjectId? id, IReadOnlyList<Point3> points, string colour, float width, SpaceVolume space, float left, float top, float scale, bool draft = false)
+    {
+        for (int index = 1; index < points.Count; index++)
+        {
+            float x1 = left + (float)(points[index - 1].X - space.Origin.X) * scale;
+            float y1 = top + (float)(points[index - 1].Y - space.Origin.Y) * scale;
+            float x2 = left + (float)(points[index].X - space.Origin.X) * scale;
+            float y2 = top + (float)(points[index].Y - space.Origin.Y) * scale;
+            DrawLine(canvas, x1, y1, x2, y2, colour, width);
+        }
+        bool selected = id is ObjectId routeId && SelectedRouteId == routeId;
+        if (!selected && !draft) return;
+        for (int index = 0; index < points.Count; index++)
+        {
+            float x = left + (float)(points[index].X - space.Origin.X) * scale;
+            float y = top + (float)(points[index].Y - space.Origin.Y) * scale;
+            DrawCircle(canvas, x, y, Dp(selected ? 12 : 9), selected ? "#f2c94c" : colour, PaintStyle.Fill!, 0);
+            DrawCircle(canvas, x, y, Dp(selected ? 12 : 9), "#07131a", PaintStyle.Stroke!, Dp(2));
+            DrawText(canvas, (index + 1).ToString(CultureInfo.InvariantCulture), x, y + Dp(3), "#07131a", Dp(7), Paint.Align.Center!);
+        }
+    }
+
+    private void DrawPlanPorts(Canvas canvas, SpaceVolume space, float left, float top, float scale)
+    {
+        foreach ((PortReference reference, Point3 point) in Ports())
+        {
+            float x = left + (float)(point.X - space.Origin.X) * scale;
+            float y = top + (float)(point.Y - space.Origin.Y) * scale;
+            DrawCircle(canvas, x, y, Dp(8), "#66e6a5", PaintStyle.Fill!, 0);
+            DrawCircle(canvas, x, y, Dp(8), "#07131a", PaintStyle.Stroke!, Dp(2));
+            DrawText(canvas, reference.PortId.ToUpperInvariant(), x, y - Dp(12), "#66e6a5", Dp(7), Paint.Align.Center!);
+        }
     }
 
     private void DrawPlanOpening(Canvas canvas, BuildingOpening opening, SpaceVolume space, float left, float top, float scale, float wall)
@@ -255,6 +390,105 @@ public sealed class RoomPreviewView : View
             .FirstOrDefault();
     }
 
+    private (ObjectId RouteId, int VertexIndex)? HitSelectedRouteVertex(float screenX, float screenY)
+    {
+        if (SelectedRouteId is not ObjectId routeId) return null;
+        PlanTransform transform = PlanCoordinates();
+        IReadOnlyList<Point3> points = RouteSpatialPoints(routeId);
+        return points
+            .Select((point, index) => new
+            {
+                Index = index,
+                Distance = Math.Sqrt(
+                    Math.Pow(screenX - (transform.Left + (point.X - _document.Space.Origin.X) * transform.Scale), 2) +
+                    Math.Pow(screenY - (transform.Top + (point.Y - _document.Space.Origin.Y) * transform.Scale), 2)),
+            })
+            .Where(hit => hit.Distance <= Dp(28))
+            .OrderBy(hit => hit.Distance)
+            .Select(hit => ((ObjectId RouteId, int VertexIndex)?)(routeId, hit.Index))
+            .FirstOrDefault();
+    }
+
+    private ObjectId? HitPlanRoute(float screenX, float screenY)
+    {
+        PlanTransform transform = PlanCoordinates();
+        return Routes()
+            .Select(route => new
+            {
+                route.Id,
+                Distance = SegmentDistance(route.Points, screenX, screenY, transform),
+            })
+            .Where(hit => hit.Distance <= Dp(22))
+            .OrderBy(hit => hit.Distance)
+            .Select(hit => (ObjectId?)hit.Id)
+            .FirstOrDefault();
+    }
+
+    private PortReference? HitPlanPort(float screenX, float screenY)
+    {
+        PlanTransform transform = PlanCoordinates();
+        return Ports()
+            .Select(port => new
+            {
+                port.Reference,
+                Distance = Math.Sqrt(
+                    Math.Pow(screenX - (transform.Left + (port.Point.X - _document.Space.Origin.X) * transform.Scale), 2) +
+                    Math.Pow(screenY - (transform.Top + (port.Point.Y - _document.Space.Origin.Y) * transform.Scale), 2)),
+            })
+            .Where(hit => hit.Distance <= Dp(32))
+            .OrderBy(hit => hit.Distance)
+            .Select(hit => (PortReference?)hit.Reference)
+            .FirstOrDefault();
+    }
+
+    private IEnumerable<(ObjectId Id, IReadOnlyList<Point3> Points)> Routes()
+    {
+        foreach (Conduit conduit in _document.Conduits.Values) yield return (conduit.Id, conduit.Route.SpatialPoints);
+        foreach (CableRoute cable in _document.Cables.Values) yield return (cable.Id, cable.Route.SpatialPoints);
+    }
+
+    private IReadOnlyList<Point3> RouteSpatialPoints(ObjectId id)
+    {
+        if (_document.Conduits.TryGetValue(id, out Conduit? conduit)) return conduit.Route.SpatialPoints;
+        if (_document.Cables.TryGetValue(id, out CableRoute? cable)) return cable.Route.SpatialPoints;
+        throw new KeyNotFoundException($"Route '{id}' does not exist.");
+    }
+
+    private IEnumerable<(PortReference Reference, Point3 Point)> Ports()
+    {
+        foreach (Device device in _document.Devices.Values)
+        {
+            foreach (Port port in device.Ports)
+            {
+                var reference = new PortReference(device.Id, port.Id);
+                Point2 point = DocumentHandleEditor.RequirePosition(
+                    _document,
+                    new EditHandleId(device.Id, EditHandleKind.Port, Name: port.Id));
+                yield return (reference, new Point3(point.X, point.Y, device.ElevationMillimetres));
+            }
+        }
+    }
+
+    private double SegmentDistance(IReadOnlyList<Point3> points, float screenX, float screenY, PlanTransform transform)
+    {
+        double best = double.MaxValue;
+        for (int index = 1; index < points.Count; index++)
+        {
+            double x1 = transform.Left + (points[index - 1].X - _document.Space.Origin.X) * transform.Scale;
+            double y1 = transform.Top + (points[index - 1].Y - _document.Space.Origin.Y) * transform.Scale;
+            double x2 = transform.Left + (points[index].X - _document.Space.Origin.X) * transform.Scale;
+            double y2 = transform.Top + (points[index].Y - _document.Space.Origin.Y) * transform.Scale;
+            double dx = x2 - x1;
+            double dy = y2 - y1;
+            double lengthSquared = dx * dx + dy * dy;
+            double fraction = lengthSquared == 0 ? 0 : Math.Clamp(((screenX - x1) * dx + (screenY - y1) * dy) / lengthSquared, 0, 1);
+            double nearestX = x1 + fraction * dx;
+            double nearestY = y1 + fraction * dy;
+            best = Math.Min(best, Math.Sqrt(Math.Pow(screenX - nearestX, 2) + Math.Pow(screenY - nearestY, 2)));
+        }
+        return best;
+    }
+
     private Point3 PlanScreenToDocument(float screenX, float screenY, double elevation)
     {
         PlanTransform transform = PlanCoordinates();
@@ -321,6 +555,16 @@ public sealed class RoomPreviewView : View
             DrawLine(canvas, start.X, start.Y, end.X, end.Y, "#72dfff", Dp(1.3f));
         }
 
+        foreach (Conduit conduit in _document.Conduits.Values.OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase))
+            DrawSpatialRoute(canvas, conduit.Id, conduit.Route.SpatialPoints, "#4b91ad", Dp(6), space, ToScreen);
+        foreach (CableRoute cable in _document.Cables.Values.OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase))
+            DrawSpatialRoute(canvas, cable.Id, cable.Route.SpatialPoints, CableColour(cable.Kind), Dp(3), space, ToScreen);
+        if (RouteDraft is not null)
+        {
+            string colour = RouteDraft.Tool == RoomPreviewTool.CableRoute ? "#f2c94c" : "#55d7ff";
+            DrawSpatialRoute(canvas, null, RouteDraft.Points, colour, Dp(4), space, ToScreen);
+        }
+
         foreach (BuildingOpening opening in _document.Openings.Values.OrderBy(opening => ProjectRaw(LocalPoint(opening.Centre, space)).Depth))
         {
             ScreenPoint[] points = BuildingOpeningGeometry.Corners(opening)
@@ -345,6 +589,19 @@ public sealed class RoomPreviewView : View
         }
 
         DrawText(canvas, $"{space.WidthMillimetres / 1000:0.###} × {space.DepthMillimetres / 1000:0.###} × {space.HeightMillimetres / 1000:0.###} m", Dp(12), Height - Dp(13), "#dff7ff", Dp(11), Paint.Align.Left!);
+    }
+
+    private void DrawSpatialRoute(Canvas canvas, ObjectId? id, IReadOnlyList<Point3> points, string colour, float width, SpaceVolume space, Func<Vec3, ScreenPoint> toScreen)
+    {
+        ScreenPoint[] projected = points.Select(point => toScreen(LocalPoint(point, space))).ToArray();
+        for (int index = 1; index < projected.Length; index++)
+            DrawLine(canvas, projected[index - 1].X, projected[index - 1].Y, projected[index].X, projected[index].Y, colour, width);
+        if (id is not ObjectId routeId || SelectedRouteId != routeId) return;
+        for (int index = 0; index < projected.Length; index++)
+        {
+            DrawCircle(canvas, projected[index].X, projected[index].Y, Dp(9), "#f2c94c", PaintStyle.Fill!, 0);
+            DrawText(canvas, (index + 1).ToString(CultureInfo.InvariantCulture), projected[index].X, projected[index].Y + Dp(3), "#07131a", Dp(7), Paint.Align.Center!);
+        }
     }
 
     private Vec3[] RoomCorners(SpaceVolume space) =>
@@ -482,6 +739,16 @@ public sealed class RoomPreviewView : View
         DeviceKind.AccessPoint => "AP",
         DeviceKind.PatchPanel => "PP",
         _ => "+",
+    };
+
+    private static string CableColour(CableKind kind) => kind switch
+    {
+        CableKind.Cat6 or CableKind.Cat6A => "#55d7ff",
+        CableKind.Mains3G25 or CableKind.Mains5G6 => "#ff9f43",
+        CableKind.FibreDuplex => "#c792ea",
+        CableKind.Coax => "#dff7ff",
+        CableKind.LowVoltageDc => "#66e6a5",
+        _ => "#f2c94c",
     };
 
     private sealed class ScaleListener(RoomPreviewView owner) : ScaleGestureDetector.SimpleOnScaleGestureListener

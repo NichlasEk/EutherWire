@@ -46,6 +46,16 @@ drag ends. `EDIT SELECTED` changes its label, mounting surface, or exact positio
 and can delete it. The object is immediately available as a planned task in
 `INSTALL` and is also rendered in the 3D review.
 
+Use `+ DRAW CABLE` to choose CAT6, CAT6A, EKRK, fibre, coax, or 12 V DC.
+Available device ports turn green: tap the source port, add any free bend
+points, and tap the target port to finish. Use `+ DRAW CONDUIT` to choose a
+16, 20, or 25 mm conduit and tap at least two route points. `UNDO POINT`,
+`CANCEL ROUTE`, and `FINISH ROUTE` keep unfinished work explicit. Tap a saved
+route to select it, then drag its numbered yellow vertices; each point snaps to
+100 mm and is persisted when released. `EDIT SELECTED` changes route metadata
+or deletes the whole route. Cables and conduits render in both plan and 3D and
+appear as planned tasks in `INSTALL`.
+
 1. On desktop, create a snapshot:
 
    ```sh
@@ -76,8 +86,9 @@ reported as conflicts instead of overwriting another installer's work.
 
 M1 contains snapshot import, persistent task overview, filters, task details,
 offline status/note/length editing, recovery, and event export. M1.5 now adds
-the three-mode shell, numeric room/opening survey, project snapshot export, and
-touch-driven 2D/3D review of the measured shell. It deliberately has no camera,
-gyroscope, AR overlay, photo capture, QR scan, or network sync yet. The next
-useful design slice is cable/conduit routing between the newly placeable
-installation objects; camera orientation preview remains M2.
+the three-mode shell, numeric room/opening survey, project snapshot export,
+touch-driven 2D/3D review, device placement, and typed cable/conduit routing
+with port snapping and editable vertices. It deliberately has no camera,
+gyroscope, AR overlay, photo capture, QR scan, or network sync yet. Assigning
+cables to conduits with fill/thermal feedback is the next design slice; camera
+orientation preview remains M2.
