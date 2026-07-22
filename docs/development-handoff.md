@@ -78,17 +78,22 @@ The previous conduit/fill emulator verification remains valid:
   supplied;
 - no app fatal exception occurred.
 
-The locally verified signed ARM64 field-test artifact is Mobile 0.1.5, version
-code 6:
+The signed ARM64 field-test artifact is Mobile 0.1.5, version code 6:
 
 - SHA-256: `bb179ed23f7c025059292732db262b0d7ae05f1ad965342407cebad241f2012a`
 - Size: `81304064` bytes
 - Local path:
   `src/EutherWire.Mobile/bin/Debug/net10.0-android/android-arm64/publish/se.eutherwire.mobile-Signed.apk`
+- Public Apps URL:
+  `https://apothictech.se/downloads/EutherWire-0.1.0-debug.apk`
+- Server backup of 0.1.4:
+  `/home/nichlas/EutherWire-0.1.4-conduit-fill.previous.apk`
 
-This 0.1.5 artifact has not yet replaced the public 0.1.4 Apps download. Do not
-claim public deployment until the server file, MIME type, byte length, and
-hash have been checked.
+The public file was replaced on 2026-07-22 after the server staging hash matched
+the local artifact. The active server path has the matching SHA-256 and byte
+length. The public HTTPS URL returned HTTP 200, Android APK MIME type, the
+expected attachment filename, no-store caching, and the matching 81,304,064
+byte content length.
 
 ## Next implementation slice
 
