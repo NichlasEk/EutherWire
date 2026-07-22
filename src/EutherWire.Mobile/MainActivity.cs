@@ -43,7 +43,9 @@ public sealed class MainActivity : Activity
     private TextView? _message;
     private Spinner? _filter;
     private Button? _exportButton;
+    private RoomPreviewView? _roomPreview;
     private MobileMode _mode = MobileMode.Survey;
+    private RoomPreviewMode _previewMode = RoomPreviewMode.Plan;
 
     private enum MobileMode { Survey, Design, Install }
 
@@ -271,14 +273,50 @@ public sealed class MainActivity : Activity
         if (_document is null || _taskList is null || _projectTitle is null || _summary is null) return;
         SpaceVolume space = _document.Space;
         _projectTitle.Text = _document.Name.ToUpperInvariant();
-        _summary.Text = $"DESIGN · {Metres(space.WidthMillimetres)} × {Metres(space.DepthMillimetres)} · {_document.Openings.Count} FIXED OPENINGS";
-        _taskList.AddView(Text("THE MEASURED SHELL IS READY", 17, "#66e6a5"));
-        _taskList.AddView(Text(
-            "Export this project and open it in EutherWire desktop to place boards, boxes, lights, conduits and cables. Mobile handle-driven placement is the next design slice.",
-            14, "#dff7ff"));
-        Button survey = ActionButton("BACK TO SURVEY");
+        _summary.Text = $"DESIGN · {Metres(space.WidthMillimetres)} × {Metres(space.DepthMillimetres)} · {_document.Openings.Count} FIXED OPENING{(_document.Openings.Count == 1 ? string.Empty : "S")}";
+
+        var viewModes = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        Button plan = PreviewModeButton("2D PLAN", RoomPreviewMode.Plan);
+        Button room3D = PreviewModeButton("3D ROOM", RoomPreviewMode.Room3D);
+        viewModes.AddView(plan, Weighted());
+        viewModes.AddView(room3D, Weighted());
+        _taskList.AddView(viewModes, MatchWrap());
+
+        _roomPreview = new RoomPreviewView(this, _document, _previewMode);
+        var previewParameters = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, Dp(420));
+        previewParameters.SetMargins(0, Dp(8), 0, Dp(8));
+        _taskList.AddView(_roomPreview, previewParameters);
+
+        var previewActions = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        Button reset = ActionButton("RESET VIEW");
+        reset.Click += (_, _) => _roomPreview?.ResetView();
+        previewActions.AddView(reset, Weighted());
+        Button survey = ActionButton("EDIT SURVEY");
         survey.Click += (_, _) => SetMode(MobileMode.Survey);
-        _taskList.AddView(survey, MatchWrap());
+        previewActions.AddView(survey, Weighted());
+        _taskList.AddView(previewActions, MatchWrap());
+
+        string gesture = _previewMode == RoomPreviewMode.Plan
+            ? "DRAG TO PAN · PINCH TO ZOOM"
+            : "DRAG TO ROTATE · PINCH TO ZOOM";
+        _taskList.AddView(Text(gesture, 12, "#55d7ff"));
+        _taskList.AddView(Text(
+            "The preview is built directly from the measured room and fixed openings. Export the project to continue placing boards, boxes, lights, conduits and cables on desktop.",
+            14, "#dff7ff"));
+    }
+
+    private Button PreviewModeButton(string label, RoomPreviewMode mode)
+    {
+        Button button = ActionButton(label);
+        bool active = mode == _previewMode;
+        button.SetTextColor(Color.ParseColor(active ? "#0b1821" : "#dff7ff"));
+        button.SetBackgroundColor(Color.ParseColor(active ? "#55d7ff" : "#132632"));
+        button.Click += (_, _) =>
+        {
+            _previewMode = mode;
+            RenderTasks();
+        };
+        return button;
     }
 
     private void ShowRoomDialog(bool create)

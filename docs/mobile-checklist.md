@@ -32,6 +32,11 @@ sill, width, and height. `EXPORT PROJECT` writes a complete portable snapshot
 that opens in the desktop app. Every measured opening uses the shared document
 model and therefore also appears automatically under `INSTALL`.
 
+`DESIGN` shows the measured shell as both a 2D plan and a simple 3D room. Drag
+to pan the plan or rotate the room, pinch to zoom, and use `RESET VIEW` to
+recover the fitted overview. Doors, garage doors, windows, and penetrations are
+colour-coded and labelled in both views.
+
 1. On desktop, create a snapshot:
 
    ```sh
@@ -62,7 +67,8 @@ reported as conflicts instead of overwriting another installer's work.
 
 M1 contains snapshot import, persistent task overview, filters, task details,
 offline status/note/length editing, recovery, and event export. M1.5 now adds
-the three-mode shell plus numeric room/opening survey and project snapshot
-export. It deliberately has no camera, gyroscope, AR overlay, photo capture, QR
-scan, or network sync yet. The next useful slice is a touch-driven room preview;
-camera orientation preview remains M2.
+the three-mode shell, numeric room/opening survey, project snapshot export, and
+touch-driven 2D/3D review of the measured shell. It deliberately has no camera,
+gyroscope, AR overlay, photo capture, QR scan, or network sync yet. The next
+useful design slice is handle-driven placement of installation objects; camera
+orientation preview remains M2.

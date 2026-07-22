@@ -208,6 +208,8 @@ events after interruption, and exports JSONL for conflict-aware desktop merge.
 It also starts a measured project on the phone through explicit Survey,
 Design, and Install modes: numeric room construction, wall-mounted fixed
 openings, and full project snapshot export share the desktop document model.
+Design includes a touch-driven 2D plan and rotatable 3D room review built from
+that same measured shell; drag pans or rotates and pinch controls zoom.
 
 ```sh
 ./eutherwire.sh mobile-build

@@ -143,7 +143,10 @@ synchronize when a local EutherWire host becomes reachable again.
 - implemented: survey completeness checklist and full portable snapshot export;
 - implemented: save through the shared command/document model so measured
   openings immediately become installation tasks;
-- next: show the measured room as a reviewable touch-driven 2D/3D shell.
+- implemented: review the measured room as a touch-driven 2D plan and rotatable
+  3D shell with labelled, colour-coded fixed openings;
+- next: place installation objects in the mobile design view using large touch
+  handles and exact numeric fallback fields.
 
 ### M2: Camera orientation preview
 
