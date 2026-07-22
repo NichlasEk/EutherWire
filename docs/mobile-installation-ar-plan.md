@@ -160,7 +160,11 @@ synchronize when a local EutherWire host becomes reachable again.
 - implemented: enter traceable circuit current, protective-device current and
   characteristic, loaded conductor count, correction factors, verified
   reference capacity, and source with a live corrected `Ib <= In <= Iz` result;
-- next: capture project-linked field photos before camera guidance work.
+- implemented: choose or capture project-linked field photos, store them under
+  collision-safe content-addressed names, journal their references offline,
+  preview them on the task, and include them in integrity-checked snapshots;
+- next: begin calibrated camera/orientation guidance without claiming spatial
+  precision that the phone has not established.
 
 ### M2: Camera orientation preview
 

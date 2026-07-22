@@ -2,9 +2,11 @@ using System.Globalization;
 using Android.App;
 using Android.Content;
 using Android.OS;
+using Android.Provider;
 using Android.Views;
 using Android.Views.InputMethods;
 using Android.Widget;
+using AndroidX.Core.Content;
 using EutherWire.Document.Analysis;
 using EutherWire.Document.Commands;
 using EutherWire.Document.Editing;
@@ -29,10 +31,14 @@ public sealed class MainActivity : Activity
     private const int ImportSnapshotRequest = 1001;
     private const int ExportEventsRequest = 1002;
     private const int ExportSnapshotRequest = 1003;
+    private const int ChoosePhotoRequest = 1004;
+    private const int CapturePhotoRequest = 1005;
     private const string PreferencesName = "eutherwire_mobile";
     private const string ActiveProjectKey = "active_project";
     private const string DeviceIdKey = "device_id";
     private const string PendingJournalName = "pending-installation-events.jsonl";
+    private const string PendingPhotoObjectState = "pending_photo_object";
+    private const string PendingCapturePathState = "pending_capture_path";
 
     private readonly string[] _filterNames = ["ALL", "TO DO", "DONE", "BLOCKED"];
     private readonly Dictionary<MobileMode, Button> _modeButtons = [];
@@ -91,6 +97,8 @@ public sealed class MainActivity : Activity
     private ObjectId? _selectedDeviceId;
     private ObjectId? _selectedRouteId;
     private RouteDraftState? _routeDraft;
+    private ObjectId? _pendingPhotoObjectId;
+    private string? _pendingCapturedPhotoPath;
     private MobileMode _mode = MobileMode.Survey;
     private RoomPreviewMode _previewMode = RoomPreviewMode.Plan;
 
@@ -135,8 +143,18 @@ public sealed class MainActivity : Activity
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
+        string? pendingObject = savedInstanceState?.GetString(PendingPhotoObjectState);
+        if (!string.IsNullOrWhiteSpace(pendingObject)) _pendingPhotoObjectId = ObjectId.Parse(pendingObject);
+        _pendingCapturedPhotoPath = savedInstanceState?.GetString(PendingCapturePathState);
         BuildUi();
         LoadActiveProject();
+    }
+
+    protected override void OnSaveInstanceState(Bundle outState)
+    {
+        base.OnSaveInstanceState(outState);
+        if (_pendingPhotoObjectId is ObjectId objectId) outState.PutString(PendingPhotoObjectState, objectId.Value);
+        if (_pendingCapturedPhotoPath is not null) outState.PutString(PendingCapturePathState, _pendingCapturedPhotoPath);
     }
 
     private void BuildUi()
@@ -1374,6 +1392,32 @@ public sealed class MainActivity : Activity
             form.AddView(actualLength);
         }
 
+        form.AddView(Label("FIELD PHOTOS"));
+        int availablePhotos = 0;
+        foreach (string reference in record.PhotoReferences)
+        {
+            try
+            {
+                if (_projectDirectory is not null && File.Exists(ProjectPhotoStore.Resolve(_projectDirectory, reference))) availablePhotos++;
+            }
+            catch (InvalidDataException)
+            {
+            }
+        }
+        string photoCount = record.PhotoReferences.Count == 1 ? "1 PHOTO ATTACHED" : $"{record.PhotoReferences.Count} PHOTOS ATTACHED";
+        form.AddView(Text(photoCount, 13, "#dff7ff"));
+        if (availablePhotos != record.PhotoReferences.Count)
+            form.AddView(Text($"{record.PhotoReferences.Count - availablePhotos} REFERENCED PHOTO(S) ARE MISSING", 12, "#ff7b72"));
+        View? preview = LatestPhotoPreview(record);
+        if (preview is not null) form.AddView(preview, MatchWrap());
+        var photoActions = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        Button choosePhoto = ActionButton("CHOOSE PHOTO");
+        Button capturePhoto = ActionButton("TAKE PHOTO");
+        photoActions.AddView(choosePhoto, Weighted());
+        photoActions.AddView(capturePhoto, Weighted());
+        form.AddView(photoActions, MatchWrap());
+        form.AddView(Text("Photos stay inside the offline project and are included in project snapshots.", 11, "#9eb0bb"));
+
         var scroll = new ScrollView(this);
         scroll.AddView(form);
         var dialogBuilder = new AlertDialog.Builder(this);
@@ -1381,8 +1425,75 @@ public sealed class MainActivity : Activity
         dialogBuilder.SetNegativeButton("CANCEL", (_, _) => { });
         dialogBuilder.SetPositiveButton("SAVE OFFLINE", (_, _) => SaveTask(objectId, statusSpinner, note, actualLength));
         AlertDialog dialog = dialogBuilder.Create() ?? throw new InvalidOperationException("Could not create task dialog.");
+        choosePhoto.Click += (_, _) => BeginChoosePhoto(objectId, dialog);
+        capturePhoto.Click += (_, _) => BeginCapturePhoto(objectId, dialog);
         dialog.Show();
         dialog.Window?.SetSoftInputMode(SoftInput.AdjustResize);
+    }
+
+    private View? LatestPhotoPreview(InstallationRecord record)
+    {
+        if (_projectDirectory is null || record.PhotoReferences.Count == 0) return null;
+        string reference = record.PhotoReferences[^1];
+        try
+        {
+            string path = ProjectPhotoStore.Resolve(_projectDirectory, reference);
+            if (!File.Exists(path)) return Text($"MISSING · {reference}", 11, "#ff7b72");
+            var bounds = new Android.Graphics.BitmapFactory.Options { InJustDecodeBounds = true };
+            Android.Graphics.BitmapFactory.DecodeFile(path, bounds);
+            int sample = 1;
+            int target = Dp(900);
+            while (bounds.OutWidth / sample > target * 2 || bounds.OutHeight / sample > target * 2) sample *= 2;
+            var options = new Android.Graphics.BitmapFactory.Options { InSampleSize = sample };
+            Android.Graphics.Bitmap? bitmap = Android.Graphics.BitmapFactory.DecodeFile(path, options);
+            if (bitmap is null) return Text($"COULD NOT PREVIEW · {reference}", 11, "#f2c94c");
+            var image = new ImageView(this);
+            image.SetAdjustViewBounds(true);
+            image.SetImageBitmap(bitmap);
+            image.SetMaxHeight(Dp(240));
+            image.SetPadding(0, Dp(8), 0, Dp(8));
+            image.ContentDescription = $"Latest field photo: {Path.GetFileName(reference)}";
+            return image;
+        }
+        catch (Exception exception) when (exception is InvalidDataException or ArgumentException)
+        {
+            return Text($"INVALID PHOTO REFERENCE · {reference}", 11, "#ff7b72");
+        }
+    }
+
+    private void BeginChoosePhoto(ObjectId objectId, AlertDialog dialog)
+    {
+        _pendingPhotoObjectId = objectId;
+        CleanupPendingCapture();
+        var intent = new Intent(Intent.ActionOpenDocument);
+        intent.AddCategory(Intent.CategoryOpenable);
+        intent.SetType("image/*");
+        dialog.Dismiss();
+        StartActivityForResult(intent, ChoosePhotoRequest);
+    }
+
+    private void BeginCapturePhoto(ObjectId objectId, AlertDialog dialog)
+    {
+        CleanupPendingCapture();
+        var intent = new Intent(MediaStore.ActionImageCapture);
+        if (intent.ResolveActivity(PackageManager!) is null)
+        {
+            ShowMessage("No camera app is available.", error: true);
+            return;
+        }
+        string captureDirectory = Path.Combine(CacheDir!.AbsolutePath, "captured-photos");
+        Directory.CreateDirectory(captureDirectory);
+        string capturePath = Path.Combine(captureDirectory, $"capture-{Guid.NewGuid():N}.jpg");
+        using (File.Create(capturePath)) { }
+        Android.Net.Uri output = FileProvider.GetUriForFile(this, $"{PackageName}.files", new Java.IO.File(capturePath))
+            ?? throw new IOException("Could not create a secure camera output URI.");
+        intent.PutExtra(MediaStore.ExtraOutput, output);
+        intent.ClipData = ClipData.NewRawUri("EutherWire field photo", output);
+        intent.AddFlags(ActivityFlags.GrantReadUriPermission | ActivityFlags.GrantWriteUriPermission);
+        _pendingPhotoObjectId = objectId;
+        _pendingCapturedPhotoPath = capturePath;
+        dialog.Dismiss();
+        StartActivityForResult(intent, CapturePhotoRequest);
     }
 
     private void SaveTask(ObjectId objectId, Spinner statusSpinner, EditText note, EditText? actualLength)
@@ -1401,13 +1512,7 @@ public sealed class MainActivity : Activity
                 testResult: current.TestResult,
                 photoReferences: current.PhotoReferences,
                 revision: current.Revision);
-            InstallationEvent installationEvent = InstallationEvent.CreateSetRecord(current, desired, AuthorDeviceId);
-            string pendingPath = Path.Combine(_projectDirectory, PendingJournalName);
-            InstallationJournal.AppendUnique(pendingPath, [installationEvent]);
-            InstallationEventApplyResult result = InstallationJournal.Apply(_document, installationEvent);
-            if (result.Status != InstallationEventApplyStatus.Applied) throw new InvalidOperationException(result.Message);
-            ProjectToml.Save(_projectDirectory, _document);
-            InstallationJournal.AppendUnique(Path.Combine(_projectDirectory, InstallationJournal.FileName), [installationEvent]);
+            ApplyInstallationChange(current, desired);
             ShowMessage($"Saved offline · revision {_document.RequireInstallationRecord(objectId).Revision}");
             RenderTasks();
         }
@@ -1415,6 +1520,17 @@ public sealed class MainActivity : Activity
         {
             ShowMessage($"Could not save task: {exception.Message}", error: true);
         }
+    }
+
+    private void ApplyInstallationChange(InstallationRecord current, InstallationRecord desired)
+    {
+        if (_document is null || _projectDirectory is null) throw new InvalidOperationException("No project is loaded.");
+        InstallationEvent installationEvent = InstallationEvent.CreateSetRecord(current, desired, AuthorDeviceId);
+        InstallationJournal.AppendUnique(Path.Combine(_projectDirectory, PendingJournalName), [installationEvent]);
+        InstallationEventApplyResult result = InstallationJournal.Apply(_document, installationEvent);
+        if (result.Status != InstallationEventApplyStatus.Applied) throw new InvalidOperationException(result.Message);
+        ProjectToml.Save(_projectDirectory, _document);
+        InstallationJournal.AppendUnique(Path.Combine(_projectDirectory, InstallationJournal.FileName), [installationEvent]);
     }
 
     private void RecoverPendingEvents()
@@ -1472,17 +1588,106 @@ public sealed class MainActivity : Activity
     protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
     {
         base.OnActivityResult(requestCode, resultCode, data);
-        if (resultCode != Result.Ok || data?.Data is null) return;
+        bool photoRequest = requestCode is ChoosePhotoRequest or CapturePhotoRequest;
+        if (resultCode != Result.Ok)
+        {
+            if (photoRequest)
+            {
+                CleanupPendingCapture();
+                _pendingPhotoObjectId = null;
+                ShowMessage("Photo action cancelled.");
+            }
+            return;
+        }
         try
         {
-            if (requestCode == ImportSnapshotRequest) ImportSnapshot(data.Data);
-            if (requestCode == ExportEventsRequest) ExportPendingEvents(data.Data);
-            if (requestCode == ExportSnapshotRequest) ExportProjectSnapshot(data.Data);
+            if (requestCode == ChoosePhotoRequest)
+            {
+                Android.Net.Uri uri = data?.Data ?? throw new IOException("The photo picker did not return an image.");
+                string extension = PhotoExtension(ContentResolver!.GetType(uri), uri.LastPathSegment);
+                using Stream input = ContentResolver.OpenInputStream(uri) ?? throw new IOException("Could not open selected photo.");
+                ImportTaskPhoto(input, extension);
+            }
+            else if (requestCode == CapturePhotoRequest)
+            {
+                string path = _pendingCapturedPhotoPath ?? throw new IOException("Captured photo path is missing.");
+                using Stream input = File.OpenRead(path);
+                ImportTaskPhoto(input, "jpg");
+            }
+            else
+            {
+                Android.Net.Uri uri = data?.Data ?? throw new IOException("The document picker did not return a file.");
+                if (requestCode == ImportSnapshotRequest) ImportSnapshot(uri);
+                if (requestCode == ExportEventsRequest) ExportPendingEvents(uri);
+                if (requestCode == ExportSnapshotRequest) ExportProjectSnapshot(uri);
+            }
         }
         catch (Exception exception)
         {
             ShowMessage(exception.Message, error: true);
         }
+        finally
+        {
+            if (photoRequest)
+            {
+                CleanupPendingCapture();
+                _pendingPhotoObjectId = null;
+            }
+        }
+    }
+
+    private void ImportTaskPhoto(Stream input, string extension)
+    {
+        if (_document is null || _projectDirectory is null || _pendingPhotoObjectId is not ObjectId objectId)
+            throw new InvalidOperationException("No installation task is waiting for a photo.");
+        ProjectPhotoImport imported = ProjectPhotoStore.Import(_projectDirectory, objectId, input, extension);
+        InstallationRecord current = _document.RequireInstallationRecord(objectId);
+        if (current.PhotoReferences.Contains(imported.Reference, StringComparer.Ordinal))
+        {
+            ShowMessage("That photo is already attached to this task.");
+            ShowTask(objectId);
+            return;
+        }
+        var desired = new InstallationRecord(objectId, current.Status, current.UpdatedAt, current.Note,
+            current.ActualPosition, current.ActualLengthMillimetres, current.TestResult,
+            [.. current.PhotoReferences, imported.Reference], current.Revision);
+        try
+        {
+            ApplyInstallationChange(current, desired);
+        }
+        catch
+        {
+            if (imported.Created && File.Exists(imported.FullPath)) File.Delete(imported.FullPath);
+            throw;
+        }
+        ShowMessage($"Photo attached offline · {imported.Length / 1024d:0.#} KiB");
+        RenderTasks();
+        ShowTask(objectId);
+    }
+
+    private static string PhotoExtension(string? mimeType, string? name) => mimeType?.ToLowerInvariant() switch
+    {
+        "image/jpeg" or "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/heic" => "heic",
+        "image/heif" => "heif",
+        _ => Path.GetExtension(name)?.TrimStart('.').ToLowerInvariant() switch
+        {
+            "jpg" or "jpeg" => "jpg",
+            "png" => "png",
+            "webp" => "webp",
+            "heic" => "heic",
+            "heif" => "heif",
+            _ => throw new InvalidDataException($"Unsupported photo MIME type '{mimeType ?? "unknown"}'."),
+        },
+    };
+
+    private void CleanupPendingCapture()
+    {
+        if (_pendingCapturedPhotoPath is not null && File.Exists(_pendingCapturedPhotoPath))
+            File.Delete(_pendingCapturedPhotoPath);
+        _pendingCapturedPhotoPath = null;
     }
 
     private void ImportSnapshot(Android.Net.Uri uri)

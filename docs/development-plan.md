@@ -254,8 +254,10 @@ their geometry, and feed live conduit-content, physical-fill, grouping, and
 thermal-status feedback in Mobile Design. Power cable dialogs now persist
 traceable Ib/In/Iz evidence, protection characteristic, loaded conductors,
 correction factors, and source through the shared electrical model while
-previewing the corrected relation live. Project-linked photo capture is the
-next product slice; camera/gyro guidance follows that measured baseline.
+previewing the corrected relation live. Project-linked photo choosing/capture
+now stores content-addressed evidence inside the project, journals the shared
+installation record, previews it in the task, and carries it through verified
+snapshots. Calibrated camera/gyro guidance follows that measured baseline.
 
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets

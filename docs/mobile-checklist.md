@@ -82,7 +82,9 @@ conductors. Reopen the cable after saving to confirm the values persisted.
 2. Copy the snapshot to the phone and choose `IMPORT SNAPSHOT` in EutherWire.
 3. Filter all, unfinished, completed, or blocked tasks.
 4. Tap a device, opening, conduit, or cable. Set status, field note, and actual
-   length where applicable, then choose `SAVE OFFLINE`.
+   length where applicable. Use `CHOOSE PHOTO` or `TAKE PHOTO` to attach field
+   evidence; the task immediately shows its photo count and latest preview.
+   Then choose `SAVE OFFLINE` for any remaining form edits.
 5. Choose `EXPORT EVENTS` and save the pending JSONL file.
 6. On desktop, merge it:
 
@@ -102,11 +104,13 @@ reported as conflicts instead of overwriting another installer's work.
 ## Current M1 boundary
 
 M1 contains snapshot import, persistent task overview, filters, task details,
-offline status/note/length editing, recovery, and event export. M1.5 now adds
+offline status/note/length/photo editing, recovery, and event export. M1.5 now adds
 the three-mode shell, numeric room/opening survey, project snapshot export,
 touch-driven 2D/3D review, device placement, and typed cable/conduit routing
-with port snapping and editable vertices. It deliberately has no camera,
-gyroscope, AR overlay, photo capture, QR scan, or network sync yet. Cable-to-
+with port snapping and editable vertices. It deliberately has no live camera
+overlay, gyroscope guidance, AR overlay, QR scan, or network sync yet. Cable-to-
 conduit assignment, live fill/thermal feedback, and traceable mobile circuit-
-design input are implemented. Project-linked field photo capture is next;
-camera orientation preview remains M2.
+design input are implemented. Project-linked field photo choosing/capture,
+content-addressed project storage, offline journaling, task preview, and
+snapshot integrity are implemented. Calibrated camera orientation preview is
+next in M2.

@@ -397,13 +397,43 @@ Directory.Delete(journalTestDirectory, recursive: true);
 string snapshotTestDirectory = Path.Combine(Path.GetTempPath(), $"eutherwire-snapshot-{Guid.NewGuid():N}");
 string snapshotProjectDirectory = Path.Combine(snapshotTestDirectory, "source.eutherwire");
 Directory.CreateDirectory(Path.Combine(snapshotProjectDirectory, "photos"));
+byte[] snapshotPhoto = [0xff, 0xd8, 0xff, 0xe0, 0x45, 0x57, 0xff, 0xd9];
+ProjectPhotoImport importedPhoto;
+using (var photoInput = new MemoryStream(snapshotPhoto))
+    importedPhoto = ProjectPhotoStore.Import(snapshotProjectDirectory, ObjectId.Parse("snapshot-outlet"), photoInput, "jpeg");
+using (var duplicatePhotoInput = new MemoryStream(snapshotPhoto))
+{
+    ProjectPhotoImport duplicatePhoto = ProjectPhotoStore.Import(snapshotProjectDirectory, ObjectId.Parse("snapshot-outlet"), duplicatePhotoInput, ".jpg");
+    Require(!duplicatePhoto.Created && duplicatePhoto.Reference == importedPhoto.Reference,
+        "Importing identical field-photo bytes must reuse the stable content-addressed project reference.");
+}
+using (var differentPhotoInput = new MemoryStream([0xff, 0xd8, 0xff, 0xe1, 0x45, 0x57, 0xff, 0xd9]))
+{
+    ProjectPhotoImport differentPhoto = ProjectPhotoStore.Import(snapshotProjectDirectory, ObjectId.Parse("snapshot-outlet"), differentPhotoInput, "jpg");
+    Require(differentPhoto.Created && differentPhoto.Reference != importedPhoto.Reference,
+        "Different photo bytes for the same object must receive a distinct collision-safe reference.");
+    File.Delete(differentPhoto.FullPath);
+}
+Require(importedPhoto.Created && importedPhoto.Reference.StartsWith("photos/snapshot-outlet-", StringComparison.Ordinal) &&
+        importedPhoto.Reference.EndsWith(".jpg", StringComparison.Ordinal) && File.Exists(importedPhoto.FullPath),
+    "Field photos must use a collision-safe project-relative path and be written atomically.");
+bool escapingPhotoRejected = false;
+try
+{
+    _ = ProjectPhotoStore.Resolve(snapshotProjectDirectory, "photos/../../outside.jpg");
+}
+catch (InvalidDataException)
+{
+    escapingPhotoRejected = true;
+}
+Require(escapingPhotoRejected, "Photo references must never escape the active project directory.");
 var snapshotDocument = new ProjectDocument("Portable field project");
 ObjectId snapshotDeviceId = ObjectId.Parse("snapshot-outlet");
 snapshotDocument.Add(new Device(snapshotDeviceId, DeviceKind.Outlet, new Point2(700, 800), "UTT-SNAPSHOT"));
 InstallationRecord snapshotBase = snapshotDocument.RequireInstallationRecord(snapshotDeviceId);
 var snapshotDesired = new InstallationRecord(snapshotDeviceId, InstallationStatus.Tested,
     note: "Ready for handover", actualPosition: new Point3(702, 799, 1100),
-    testResult: "Passed", photoReferences: ["photos/outlet.jpg"]);
+    testResult: "Passed", photoReferences: [importedPhoto.Reference]);
 var snapshotEvent = InstallationEvent.CreateSetRecord(snapshotBase, snapshotDesired, "phone-snapshot",
     new DateTimeOffset(2026, 7, 21, 19, 0, 0, TimeSpan.Zero),
     Guid.Parse("01234567-89ab-cdef-0123-456789abcdef"));
@@ -411,8 +441,6 @@ Require(InstallationJournal.Apply(snapshotDocument, snapshotEvent).Status == Ins
     "Snapshot fixture event must apply.");
 ProjectToml.Save(snapshotProjectDirectory, snapshotDocument);
 InstallationJournal.AppendUnique(Path.Combine(snapshotProjectDirectory, InstallationJournal.FileName), [snapshotEvent]);
-byte[] snapshotPhoto = [0xff, 0xd8, 0xff, 0xe0, 0x45, 0x57, 0xff, 0xd9];
-File.WriteAllBytes(Path.Combine(snapshotProjectDirectory, "photos", "outlet.jpg"), snapshotPhoto);
 
 string snapshotOne = Path.Combine(snapshotTestDirectory, "one.eutherwire-snapshot");
 string snapshotTwo = Path.Combine(snapshotTestDirectory, "two.eutherwire-snapshot");
@@ -425,8 +453,8 @@ ProjectSnapshotInfo importedSnapshotInfo = ProjectSnapshot.Import(snapshotOne, i
 ProjectDocument importedSnapshotDocument = ProjectToml.Load(importedSnapshotProject);
 Require(importedSnapshotInfo.FileCount == 3 &&
         importedSnapshotDocument.RequireInstallationRecord(snapshotDeviceId).Status == InstallationStatus.Tested &&
-        importedSnapshotDocument.RequireInstallationRecord(snapshotDeviceId).PhotoReferences.Single() == "photos/outlet.jpg" &&
-        File.ReadAllBytes(Path.Combine(importedSnapshotProject, "photos", "outlet.jpg")).SequenceEqual(snapshotPhoto) &&
+        importedSnapshotDocument.RequireInstallationRecord(snapshotDeviceId).PhotoReferences.Single() == importedPhoto.Reference &&
+        File.ReadAllBytes(ProjectPhotoStore.Resolve(importedSnapshotProject, importedPhoto.Reference)).SequenceEqual(snapshotPhoto) &&
         InstallationJournal.Read(Path.Combine(importedSnapshotProject, InstallationJournal.FileName)).Single().EventId == snapshotEvent.EventId,
     "Snapshot import must restore validated project state, journal, and evidence bytes.");
 
@@ -468,6 +496,24 @@ catch (InvalidDataException)
 }
 Require(traversalRejected && !File.Exists(Path.Combine(snapshotTestDirectory, "outside.txt")),
     "Snapshot import must reject ZIP traversal before writing any archive entry.");
+string missingPhotoProject = Path.Combine(snapshotTestDirectory, "missing-photo.eutherwire");
+Directory.CreateDirectory(missingPhotoProject);
+var missingPhotoDocument = new ProjectDocument("Missing field photo");
+ObjectId missingPhotoDeviceId = ObjectId.Parse("missing-photo-device");
+missingPhotoDocument.Add(new Device(missingPhotoDeviceId, DeviceKind.Outlet, new Point2(0, 0), "MISSING"));
+new SetInstallationRecordCommand(new InstallationRecord(missingPhotoDeviceId,
+    photoReferences: ["photos/missing.jpg"])).Apply(missingPhotoDocument);
+ProjectToml.Save(missingPhotoProject, missingPhotoDocument);
+bool missingPhotoRejected = false;
+try
+{
+    ProjectSnapshot.Export(missingPhotoProject, Path.Combine(snapshotTestDirectory, "missing-photo.eutherwire-snapshot"));
+}
+catch (IOException)
+{
+    missingPhotoRejected = true;
+}
+Require(missingPhotoRejected, "Snapshot export must reject a missing referenced field-photo file.");
 Directory.Delete(snapshotTestDirectory, recursive: true);
 
 var electricalDocument = new ProjectDocument("Electrical conductors");

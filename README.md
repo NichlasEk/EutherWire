@@ -228,6 +228,13 @@ grouping/insulation factors, and the human-readable source. It previews the
 corrected `Ib <= In <= Iz` relation live and preserves the cable product and
 conductor list when only design evidence changes.
 
+Install tasks can attach an existing image or launch the system camera. Photos
+are copied into the active project with an object ID plus content hash, linked
+through the same revisioned installation command and offline journal as other
+field changes, and shown as an inline task preview. Selecting the same bytes
+again is idempotent. Portable snapshots include every referenced photo and
+verify its length and SHA-256 hash when imported.
+
 ```sh
 ./eutherwire.sh mobile-build
 ./eutherwire.sh mobile-install
