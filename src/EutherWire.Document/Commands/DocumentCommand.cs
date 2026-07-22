@@ -421,6 +421,31 @@ public sealed class SetCableKindCommand(ObjectId cableId, CableKind kind) : IDoc
     }
 }
 
+public sealed class SetCableConduitCommand(ObjectId cableId, ObjectId? conduitId) : IDocumentCommand
+{
+    private CableRoute? _previous;
+
+    public string Description => conduitId is ObjectId id
+        ? $"Put {cableId} in conduit {id}"
+        : $"Remove {cableId} from its conduit";
+
+    public void Apply(ProjectDocument document)
+    {
+        CableRoute cable = document.RequireCable(cableId);
+        _previous ??= cable;
+        Polyline route = conduitId is ObjectId id
+            ? document.RequireConduit(id).Route
+            : cable.Route;
+        document.Replace(cable with { ConduitId = conduitId, Route = route });
+    }
+
+    public void Undo(ProjectDocument document)
+    {
+        _ = document.RequireCable(cableId);
+        document.Replace(_previous ?? throw new InvalidOperationException("Command has not been applied."));
+    }
+}
+
 public sealed class SetCableElectricalCommand(ObjectId cableId, CableKind kind, ElectricalCableSpec electrical) : IDocumentCommand
 {
     private CableRoute? _previous;

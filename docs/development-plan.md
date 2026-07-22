@@ -249,9 +249,11 @@ devices with mounting-surface constraints, exact XYZ fields, and large 2D move
 handles; the same objects render in 3D and appear in Install. Mobile Design now
 also draws typed cables and 16/20/25 mm conduits, snaps cable endpoints to real
 ports, and edits saved routes through large numbered vertices. Routes render in
-2D/3D and appear in Install. The next slice assigns cables to conduits and
-surfaces fill/thermal feedback while planning. Project-linked photo capture and
-camera/gyro guidance follow the measured baseline.
+2D/3D and appear in Install. Cables can now be assigned to conduits, inherit
+their geometry, and feed live conduit-content, physical-fill, grouping, and
+thermal-status feedback in Mobile Design. The next electrical slice brings the
+traceable Ib/In/Iz and correction-factor inputs to mobile. Project-linked photo
+capture and camera/gyro guidance follow the measured baseline.
 
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets

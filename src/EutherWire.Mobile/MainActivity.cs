@@ -491,12 +491,13 @@ public sealed class MainActivity : Activity
         if (_editDeviceButton is not null) _editDeviceButton.Enabled = selectedDevice is not null || selectedCable is not null || selectedConduit is not null;
         if (_deviceSelection is not null)
         {
+            ProjectAnalysis? analysis = _document is null ? null : ProjectAnalyzer.Analyze(_document);
             _deviceSelection.Text = selectedDevice is not null
                 ? $"SELECTED · {selectedDevice.Label} · {Name(selectedDevice.Kind.ToString())} · X {selectedDevice.Position.X:0} · Y {selectedDevice.Position.Y:0} · Z {selectedDevice.ElevationMillimetres:0} mm"
                 : selectedCable is not null
-                    ? $"SELECTED · {selectedCable.Label} · {CableKindLabel(selectedCable.Kind)} · {selectedCable.Route.LengthMillimetres / 1000:0.##} m · {selectedCable.Route.Points.Count} POINTS"
+                    ? $"SELECTED · {selectedCable.Label} · {CableKindLabel(selectedCable.Kind)} · {selectedCable.Route.LengthMillimetres / 1000:0.##} m · {CablePlanningSummary(selectedCable, analysis!)}"
                     : selectedConduit is not null
-                        ? $"SELECTED · {selectedConduit.Label} · Ø {selectedConduit.NominalDiameterMillimetres ?? selectedConduit.InnerDiameterMillimetres:0.#} mm · {selectedConduit.Route.LengthMillimetres / 1000:0.##} m · {selectedConduit.Route.Points.Count} POINTS"
+                        ? $"SELECTED · {selectedConduit.Label} · Ø {selectedConduit.NominalDiameterMillimetres ?? selectedConduit.InnerDiameterMillimetres:0.#} mm · {selectedConduit.Route.LengthMillimetres / 1000:0.##} m · {ConduitPlanningSummary(selectedConduit, analysis!)}"
                         : "SELECT A DEVICE OR ROUTE IN THE 2D PLAN";
         }
     }
@@ -677,18 +678,42 @@ public sealed class MainActivity : Activity
         EditText label = NumberOrTextField(cable?.Label ?? conduit!.Label, numeric: false);
         AddField(form, "LABEL", label);
         var profile = new Spinner(this);
+        ObjectId?[] conduitOptions = [null];
+        Spinner? conduitPicker = null;
+        ProjectAnalysis analysis = ProjectAnalyzer.Analyze(_document);
         if (cable is not null)
         {
             profile.Adapter = SpinnerAdapter(MobileCableKinds.Select(CableKindLabel).ToArray());
             profile.SetSelection(Math.Max(Array.IndexOf(MobileCableKinds, cable.Kind), 0));
             AddField(form, "CABLE TYPE", profile);
+            Conduit[] conduits = _document.Conduits.Values.OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase).ToArray();
+            conduitOptions = [null, .. conduits.Select(item => (ObjectId?)item.Id)];
+            string[] conduitLabels = ["NO CONDUIT", .. conduits.Select(item => $"{item.Label} · Ø {item.NominalDiameterMillimetres ?? item.InnerDiameterMillimetres:0.#} MM")];
+            conduitPicker = new Spinner(this) { Adapter = SpinnerAdapter(conduitLabels) };
+            int conduitIndex = Array.FindIndex(conduitOptions, item => item == cable.ConduitId);
+            conduitPicker.SetSelection(Math.Max(conduitIndex, 0));
+            AddField(form, "RUN CABLE IN", conduitPicker);
+            form.AddView(Text(CablePlanningSummary(cable, analysis), 12, "#f2c94c"));
         }
         else
         {
+            Conduit selectedConduit = conduit!;
             profile.Adapter = SpinnerAdapter(MobileConduitProfiles.Select(item => $"{item.NominalMillimetres:0} MM").ToArray());
-            int index = Array.FindIndex(MobileConduitProfiles, item => item.NominalMillimetres == conduit!.NominalDiameterMillimetres);
+            int index = Array.FindIndex(MobileConduitProfiles, item => item.NominalMillimetres == selectedConduit.NominalDiameterMillimetres);
             profile.SetSelection(Math.Max(index, 0));
             AddField(form, "CONDUIT SIZE", profile);
+            ConduitFill fill = analysis.ConduitFills.Single(item => item.ConduitId == selectedConduit.Id);
+            CableRoute[] contents = _document.Cables.Values.Where(item => item.ConduitId == selectedConduit.Id)
+                .OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase).ToArray();
+            form.AddView(Text(contents.Length == 0 ? "CONTENTS · EMPTY" : $"CONTENTS · {string.Join(", ", contents.Select(item => item.Label))}", 12, "#dff7ff"));
+            form.AddView(Text($"PHYSICAL FILL · {fill.FillRatio:P1} / 40% PLANNING LIMIT", 12, fill.FillRatio > 0.40 ? "#ff7b72" : "#66e6a5"));
+            var fillBar = new ProgressBar(this, null, Android.Resource.Attribute.ProgressBarStyleHorizontal)
+            {
+                Max = 100,
+                Progress = Math.Clamp((int)Math.Round(fill.FillRatio * 100), 0, 100),
+            };
+            form.AddView(fillBar, MatchWrap());
+            form.AddView(Text(ThermalSummary(selectedConduit.Id, analysis), 12, ThermalColour(selectedConduit.Id, analysis)));
         }
         form.AddView(Text($"ROUTE LENGTH · {(cable?.Route ?? conduit!.Route).LengthMillimetres / 1000:0.##} m", 12, "#9eb0bb"));
         var builder = new AlertDialog.Builder(this);
@@ -696,11 +721,15 @@ public sealed class MainActivity : Activity
         builder.SetView(form);
         builder.SetNegativeButton("CANCEL", (_, _) => { });
         builder.SetNeutralButton("DELETE", (_, _) => DeleteRoute(id));
-        builder.SetPositiveButton("SAVE", (_, _) => SaveRouteDetails(id, label.Text ?? string.Empty, profile.SelectedItemPosition));
+        builder.SetPositiveButton("SAVE", (_, _) => SaveRouteDetails(
+            id,
+            label.Text ?? string.Empty,
+            profile.SelectedItemPosition,
+            conduitPicker is null ? null : conduitOptions[conduitPicker.SelectedItemPosition]));
         builder.Show();
     }
 
-    private void SaveRouteDetails(ObjectId id, string label, int profileIndex)
+    private void SaveRouteDetails(ObjectId id, string label, int profileIndex, ObjectId? conduitId)
     {
         if (_document is null || _projectDirectory is null) return;
         try
@@ -709,7 +738,11 @@ public sealed class MainActivity : Activity
             new SetObjectLabelCommand(id, label.Trim()).Apply(_document);
             if (_document.Cables.ContainsKey(id))
             {
-                new SetCableKindCommand(id, MobileCableKinds[profileIndex]).Apply(_document);
+                CableKind selectedKind = MobileCableKinds[profileIndex];
+                if (_document.RequireCable(id).Kind != selectedKind)
+                    new SetCableKindCommand(id, selectedKind).Apply(_document);
+                if (_document.RequireCable(id).ConduitId != conduitId)
+                    new SetCableConduitCommand(id, conduitId).Apply(_document);
             }
             else
             {
@@ -760,6 +793,54 @@ public sealed class MainActivity : Activity
         CableKind.Coax => "COAX",
         CableKind.LowVoltageDc => "12 V DC",
         _ => "CUSTOM",
+    };
+
+    private string CablePlanningSummary(CableRoute cable, ProjectAnalysis analysis)
+    {
+        if (cable.ConduitId is not ObjectId conduitId) return $"NO CONDUIT · {CableThermalSummary(cable.Id, analysis)}";
+        Conduit conduit = _document!.RequireConduit(conduitId);
+        ConduitFill fill = analysis.ConduitFills.Single(item => item.ConduitId == conduitId);
+        return $"{conduit.Label} · FILL {fill.FillRatio:P1} · {CableThermalSummary(cable.Id, analysis)}";
+    }
+
+    private string ConduitPlanningSummary(Conduit conduit, ProjectAnalysis analysis)
+    {
+        ConduitFill fill = analysis.ConduitFills.Single(item => item.ConduitId == conduit.Id);
+        ConduitLoad load = analysis.ConduitLoads.Single(item => item.ConduitId == conduit.Id);
+        string count = load.CableCount == 1 ? "1 CABLE" : $"{load.CableCount} CABLES";
+        return $"{count} · FILL {fill.FillRatio:P1} · {ThermalSummary(conduit.Id, analysis)}";
+    }
+
+    private string ThermalSummary(ObjectId conduitId, ProjectAnalysis analysis)
+    {
+        ConduitLoad load = analysis.ConduitLoads.Single(item => item.ConduitId == conduitId);
+        if (load.PowerCircuitCount == 0) return "THERMAL N/A";
+        ElectricalDesignCheck[] checks = analysis.ElectricalDesignChecks
+            .Where(check => _document!.RequireCable(check.CableId).ConduitId == conduitId).ToArray();
+        if (checks.Any(check => check.Status == DesignCheckStatus.Warning)) return "THERMAL WARNING";
+        if (load.PowerCircuitCount > 1) return "THERMAL VERIFY GROUPING";
+        return checks.Length < load.PowerCircuitCount || checks.Any(check => check.Status == DesignCheckStatus.Unknown)
+            ? "THERMAL UNKNOWN"
+            : "THERMAL PASS";
+    }
+
+    private string CableThermalSummary(ObjectId cableId, ProjectAnalysis analysis)
+    {
+        ElectricalDesignCheck? check = analysis.ElectricalDesignChecks.FirstOrDefault(item => item.CableId == cableId);
+        return check?.Status switch
+        {
+            DesignCheckStatus.Pass => "THERMAL PASS",
+            DesignCheckStatus.Warning => "THERMAL WARNING",
+            DesignCheckStatus.Unknown => "THERMAL UNKNOWN",
+            _ => "THERMAL N/A",
+        };
+    }
+
+    private string ThermalColour(ObjectId conduitId, ProjectAnalysis analysis) => ThermalSummary(conduitId, analysis) switch
+    {
+        "THERMAL PASS" or "THERMAL N/A" => "#66e6a5",
+        "THERMAL WARNING" => "#ff7b72",
+        _ => "#f2c94c",
     };
 
     private void ShowDevicePalette()

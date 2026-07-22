@@ -153,7 +153,12 @@ synchronize when a local EutherWire host becomes reachable again.
   touch-friendly bend points and snapping to actual device ports;
 - implemented: select complete routes, drag numbered vertices in 100 mm steps,
   edit metadata, delete routes, render them in 2D/3D, and list them in Install;
-- next: assign cables to conduits and show fill/thermal feedback while routing.
+- implemented: assign cables to conduits so they share route geometry and remain
+  synchronized when conduit vertices move;
+- implemented: show conduit contents, physical fill against the 40% planning
+  limit, grouped-circuit warnings, and honest pass/warning/unknown thermal state;
+- next: enter traceable circuit current, protective-device, correction-factor,
+  and reference-capacity data on mobile before camera guidance work.
 
 ### M2: Camera orientation preview
 

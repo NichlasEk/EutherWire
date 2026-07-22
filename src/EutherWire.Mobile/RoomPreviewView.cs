@@ -299,6 +299,7 @@ public sealed class RoomPreviewView : View
         }
         bool selected = id is ObjectId routeId && SelectedRouteId == routeId;
         if (!selected && !draft) return;
+        if (selected && id is ObjectId selectedId && !IsEditableRoute(selectedId)) return;
         for (int index = 0; index < points.Count; index++)
         {
             float x = left + (float)(points[index].X - space.Origin.X) * scale;
@@ -393,6 +394,7 @@ public sealed class RoomPreviewView : View
     private (ObjectId RouteId, int VertexIndex)? HitSelectedRouteVertex(float screenX, float screenY)
     {
         if (SelectedRouteId is not ObjectId routeId) return null;
+        if (!IsEditableRoute(routeId)) return null;
         PlanTransform transform = PlanCoordinates();
         IReadOnlyList<Point3> points = RouteSpatialPoints(routeId);
         return points
@@ -453,6 +455,10 @@ public sealed class RoomPreviewView : View
         if (_document.Cables.TryGetValue(id, out CableRoute? cable)) return cable.Route.SpatialPoints;
         throw new KeyNotFoundException($"Route '{id}' does not exist.");
     }
+
+    private bool IsEditableRoute(ObjectId id) =>
+        _document.Conduits.ContainsKey(id) ||
+        (_document.Cables.TryGetValue(id, out CableRoute? cable) && cable.ConduitId is null);
 
     private IEnumerable<(PortReference Reference, Point3 Point)> Ports()
     {
@@ -596,7 +602,7 @@ public sealed class RoomPreviewView : View
         ScreenPoint[] projected = points.Select(point => toScreen(LocalPoint(point, space))).ToArray();
         for (int index = 1; index < projected.Length; index++)
             DrawLine(canvas, projected[index - 1].X, projected[index - 1].Y, projected[index].X, projected[index].Y, colour, width);
-        if (id is not ObjectId routeId || SelectedRouteId != routeId) return;
+        if (id is not ObjectId routeId || SelectedRouteId != routeId || !IsEditableRoute(routeId)) return;
         for (int index = 0; index < projected.Length; index++)
         {
             DrawCircle(canvas, projected[index].X, projected[index].Y, Dp(9), "#f2c94c", PaintStyle.Fill!, 0);

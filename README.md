@@ -217,6 +217,11 @@ It can also draw typed cables and 16/20/25 mm conduits directly in the plan.
 Cable endpoints snap to real device ports, free taps create bend points, and
 every saved route exposes large numbered vertices for 100 mm step editing. The
 same routes render in 2D and 3D and immediately become Install tasks.
+The cable editor can assign a cable to any drawn conduit; the cable then follows
+the conduit geometry. Design shows contained cable names, physical fill against
+the 40% planning limit, and `PASS`, `WARNING`, `VERIFY GROUPING`, or `UNKNOWN`
+thermal state from the shared electrical analysis. Unknown data stays unknown
+until traceable current-capacity inputs have been supplied.
 
 ```sh
 ./eutherwire.sh mobile-build

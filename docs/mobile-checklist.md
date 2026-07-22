@@ -56,6 +56,15 @@ route to select it, then drag its numbered yellow vertices; each point snaps to
 or deletes the whole route. Cables and conduits render in both plan and 3D and
 appear as planned tasks in `INSTALL`.
 
+To place a cable inside a conduit, select the cable, choose `EDIT SELECTED`, and
+set `RUN CABLE IN`. The cable adopts the conduit route and follows later conduit
+vertex changes. Selecting that conduit shows its cable contents, a fill bar and
+the physical fill percentage against the 40% planning limit. Thermal feedback
+is deliberately explicit: `PASS` and `WARNING` require traceable Ib/In/Iz data;
+`VERIFY GROUPING` flags multiple power circuits; `UNKNOWN` means the electrician
+still needs to supply or verify sizing inputs. This is planning support, not an
+automatic approval of an electrical installation.
+
 1. On desktop, create a snapshot:
 
    ```sh
@@ -89,6 +98,7 @@ offline status/note/length editing, recovery, and event export. M1.5 now adds
 the three-mode shell, numeric room/opening survey, project snapshot export,
 touch-driven 2D/3D review, device placement, and typed cable/conduit routing
 with port snapping and editable vertices. It deliberately has no camera,
-gyroscope, AR overlay, photo capture, QR scan, or network sync yet. Assigning
-cables to conduits with fill/thermal feedback is the next design slice; camera
+gyroscope, AR overlay, photo capture, QR scan, or network sync yet. Cable-to-
+conduit assignment and live fill/thermal feedback are implemented. Mobile entry
+of traceable circuit-design inputs is the next electrical slice; camera
 orientation preview remains M2.

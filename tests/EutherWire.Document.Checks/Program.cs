@@ -212,6 +212,12 @@ additionHistory.Execute(additions, new SetCableKindCommand(addedCable.Id, CableK
 Require(additions.RequireCable(addedCable.Id).Kind == CableKind.FibreDuplex, "Cable type edits must use commands.");
 Require(additions.RequireCable(addedCable.Id).Electrical?.Product == CableProductKind.Fibre,
     "Changing a legacy cable type must update its structured electrical profile.");
+Polyline independentCableRoute = additions.RequireCable(addedCable.Id).Route;
+additionHistory.Execute(additions, new SetCableConduitCommand(addedCable.Id, addedConduit.Id));
+Require(additions.RequireCable(addedCable.Id) is { ConduitId: not null } containedCable && containedCable.Route == addedConduit.Route,
+    "Assigning a cable to a conduit must reuse the conduit geometry.");
+Require(additionHistory.Undo(additions) && additions.RequireCable(addedCable.Id).ConduitId is null && additions.RequireCable(addedCable.Id).Route == independentCableRoute,
+    "Undoing conduit assignment must restore the independent cable route.");
 additionHistory.Execute(additions, new SetConduitDiameterCommand(addedConduit.Id, 32));
 Require(additions.RequireConduit(addedConduit.Id).InnerDiameterMillimetres == 32, "Conduit diameter edits must use commands.");
 additionHistory.Execute(additions, new DeleteObjectCommand(addedCable.Id));
