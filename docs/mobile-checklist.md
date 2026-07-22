@@ -65,6 +65,14 @@ is deliberately explicit: `PASS` and `WARNING` require traceable Ib/In/Iz data;
 still needs to supply or verify sizing inputs. This is planning support, not an
 automatic approval of an electrical installation.
 
+For an EKRK power cable, the same dialog exposes `TRACEABLE CIRCUIT DESIGN`.
+Enter `Ib`, `In`, protective characteristic, loaded conductor count, verified
+reference capacity, all three correction factors, and a recognizable source.
+The relation at the bottom updates live: green is a complete pass, red is a
+complete warning, and yellow means incomplete/unknown evidence. Saving changes
+only the shared `CircuitDesign`; it does not replace the cable product or its
+conductors. Reopen the cable after saving to confirm the values persisted.
+
 1. On desktop, create a snapshot:
 
    ```sh
@@ -99,6 +107,6 @@ the three-mode shell, numeric room/opening survey, project snapshot export,
 touch-driven 2D/3D review, device placement, and typed cable/conduit routing
 with port snapping and editable vertices. It deliberately has no camera,
 gyroscope, AR overlay, photo capture, QR scan, or network sync yet. Cable-to-
-conduit assignment and live fill/thermal feedback are implemented. Mobile entry
-of traceable circuit-design inputs is the next electrical slice; camera
-orientation preview remains M2.
+conduit assignment, live fill/thermal feedback, and traceable mobile circuit-
+design input are implemented. Project-linked field photo capture is next;
+camera orientation preview remains M2.

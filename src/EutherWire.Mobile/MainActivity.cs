@@ -119,6 +119,19 @@ public sealed class MainActivity : Activity
             "https://www.pipelife.se/");
     }
 
+    private sealed record CircuitDesignFields(
+        LinearLayout Container,
+        EditText DesignCurrent,
+        EditText ProtectiveDeviceCurrent,
+        EditText ProtectiveDeviceCharacteristic,
+        EditText LoadedConductorCount,
+        EditText ReferenceCapacity,
+        EditText AmbientFactor,
+        EditText GroupingFactor,
+        EditText ThermalInsulationFactor,
+        EditText ReferenceSource,
+        TextView Relation);
+
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
@@ -680,6 +693,7 @@ public sealed class MainActivity : Activity
         var profile = new Spinner(this);
         ObjectId?[] conduitOptions = [null];
         Spinner? conduitPicker = null;
+        CircuitDesignFields? designFields = null;
         ProjectAnalysis analysis = ProjectAnalyzer.Analyze(_document);
         if (cable is not null)
         {
@@ -694,6 +708,17 @@ public sealed class MainActivity : Activity
             conduitPicker.SetSelection(Math.Max(conduitIndex, 0));
             AddField(form, "RUN CABLE IN", conduitPicker);
             form.AddView(Text(CablePlanningSummary(cable, analysis), 12, "#f2c94c"));
+            designFields = AddCircuitDesignFields(form, cable);
+            void UpdateDesignVisibility()
+            {
+                CableKind selectedKind = MobileCableKinds[profile.SelectedItemPosition];
+                designFields.Container.Visibility = IsPowerPreset(ElectricalCableProfiles.Infer(selectedKind).Preset)
+                    ? ViewStates.Visible
+                    : ViewStates.Gone;
+                UpdateCircuitRelation(designFields);
+            }
+            profile.ItemSelected += (_, _) => UpdateDesignVisibility();
+            UpdateDesignVisibility();
         }
         else
         {
@@ -718,29 +743,53 @@ public sealed class MainActivity : Activity
         form.AddView(Text($"ROUTE LENGTH · {(cable?.Route ?? conduit!.Route).LengthMillimetres / 1000:0.##} m", 12, "#9eb0bb"));
         var builder = new AlertDialog.Builder(this);
         builder.SetTitle(cable is not null ? "Edit cable" : "Edit conduit");
-        builder.SetView(form);
+        builder.SetView(InScroll(form));
         builder.SetNegativeButton("CANCEL", (_, _) => { });
         builder.SetNeutralButton("DELETE", (_, _) => DeleteRoute(id));
         builder.SetPositiveButton("SAVE", (_, _) => SaveRouteDetails(
             id,
             label.Text ?? string.Empty,
             profile.SelectedItemPosition,
-            conduitPicker is null ? null : conduitOptions[conduitPicker.SelectedItemPosition]));
+            conduitPicker is null ? null : conduitOptions[conduitPicker.SelectedItemPosition],
+            designFields));
         builder.Show();
     }
 
-    private void SaveRouteDetails(ObjectId id, string label, int profileIndex, ObjectId? conduitId)
+    private void SaveRouteDetails(ObjectId id, string label, int profileIndex, ObjectId? conduitId, CircuitDesignFields? designFields)
     {
         if (_document is null || _projectDirectory is null) return;
         try
         {
             if (string.IsNullOrWhiteSpace(label)) throw new ArgumentException("Route label is required.");
+            CableKind? selectedCableKind = null;
+            ElectricalCableSpec? updatedElectrical = null;
+            if (_document.Cables.TryGetValue(id, out CableRoute? existingCable))
+            {
+                selectedCableKind = MobileCableKinds[profileIndex];
+                ElectricalCableSpec electrical = existingCable.Kind == selectedCableKind
+                    ? existingCable.Electrical ?? ElectricalCableProfiles.Infer(selectedCableKind.Value)
+                    : ElectricalCableProfiles.Infer(selectedCableKind.Value);
+                if (IsPowerPreset(electrical.Preset) && designFields is not null)
+                {
+                    CircuitDesign design = ReadCircuitDesign(designFields, electrical);
+                    updatedElectrical = new ElectricalCableSpec(
+                        electrical.Product,
+                        electrical.Preset,
+                        electrical.Conductors,
+                        electrical.Shielding,
+                        electrical.PoeCapable,
+                        electrical.OutsideDiameterMillimetres,
+                        design);
+                }
+            }
             new SetObjectLabelCommand(id, label.Trim()).Apply(_document);
             if (_document.Cables.ContainsKey(id))
             {
-                CableKind selectedKind = MobileCableKinds[profileIndex];
+                CableKind selectedKind = selectedCableKind!.Value;
                 if (_document.RequireCable(id).Kind != selectedKind)
                     new SetCableKindCommand(id, selectedKind).Apply(_document);
+                if (updatedElectrical is not null)
+                    new SetCableElectricalCommand(id, selectedKind, updatedElectrical).Apply(_document);
                 if (_document.RequireCable(id).ConduitId != conduitId)
                     new SetCableConduitCommand(id, conduitId).Apply(_document);
             }
@@ -758,6 +807,100 @@ public sealed class MainActivity : Activity
             ShowMessage($"Could not update route: {exception.Message}", error: true);
         }
     }
+
+    private CircuitDesignFields AddCircuitDesignFields(LinearLayout form, CableRoute cable)
+    {
+        ElectricalCableSpec electrical = cable.Electrical ?? ElectricalCableProfiles.Infer(cable.Kind);
+        CircuitDesign? design = electrical.Design;
+        var container = Form();
+        container.SetPadding(0, Dp(8), 0, 0);
+        container.AddView(Text("TRACEABLE CIRCUIT DESIGN", 13, "#55d7ff"));
+        container.AddView(Text("Enter verified project values. Missing evidence remains UNKNOWN.", 11, "#9eb0bb"));
+        EditText ib = OptionalNumberField(design?.DesignCurrentAmperes);
+        EditText protective = OptionalNumberField(design?.ProtectiveDeviceAmperes);
+        EditText characteristic = NumberOrTextField(design?.ProtectiveDeviceCharacteristic ?? string.Empty, numeric: false);
+        EditText loaded = NumberOrTextField(design?.LoadedConductorCount?.ToString(CultureInfo.InvariantCulture) ?? string.Empty);
+        EditText referenceCapacity = OptionalNumberField(design?.ReferenceCurrentCarryingCapacityAmperes);
+        EditText ambient = NumberOrTextField((design?.AmbientCorrectionFactor ?? 1).ToString("0.###", CultureInfo.InvariantCulture));
+        EditText grouping = NumberOrTextField((design?.GroupingCorrectionFactor ?? 1).ToString("0.###", CultureInfo.InvariantCulture));
+        EditText insulation = NumberOrTextField((design?.ThermalInsulationCorrectionFactor ?? 1).ToString("0.###", CultureInfo.InvariantCulture));
+        EditText source = NumberOrTextField(design?.ReferenceSource ?? string.Empty, numeric: false);
+        AddField(container, "DESIGN CURRENT · Ib (A)", ib);
+        AddField(container, "PROTECTIVE DEVICE · In (A)", protective);
+        AddField(container, "PROTECTIVE CHARACTERISTIC", characteristic);
+        AddField(container, "LOADED CONDUCTORS", loaded);
+        AddField(container, "VERIFIED REFERENCE CAPACITY (A)", referenceCapacity);
+        AddField(container, "AMBIENT FACTOR", ambient);
+        AddField(container, "GROUPING FACTOR", grouping);
+        AddField(container, "THERMAL INSULATION FACTOR", insulation);
+        AddField(container, "REFERENCE SOURCE", source);
+        TextView relation = Text(string.Empty, 13, "#f2c94c");
+        relation.SetPadding(0, Dp(12), 0, Dp(4));
+        container.AddView(relation);
+        var fields = new CircuitDesignFields(container, ib, protective, characteristic, loaded, referenceCapacity,
+            ambient, grouping, insulation, source, relation);
+        foreach (EditText field in new[] { ib, protective, characteristic, loaded, referenceCapacity, ambient, grouping, insulation, source })
+            field.TextChanged += (_, _) => UpdateCircuitRelation(fields);
+        form.AddView(container, MatchWrap());
+        UpdateCircuitRelation(fields);
+        return fields;
+    }
+
+    private EditText OptionalNumberField(double? value) => NumberOrTextField(
+        value?.ToString("0.###", CultureInfo.InvariantCulture) ?? string.Empty);
+
+    private void UpdateCircuitRelation(CircuitDesignFields fields)
+    {
+        double ib = 0;
+        double protective = 0;
+        double reference = 0;
+        double ambient = 0;
+        double grouping = 0;
+        double insulation = 0;
+        bool complete = TryPositive(fields.DesignCurrent.Text, out ib) &&
+            TryPositive(fields.ProtectiveDeviceCurrent.Text, out protective) &&
+            TryPositive(fields.ReferenceCapacity.Text, out reference) &&
+            TryPositive(fields.AmbientFactor.Text, out ambient) &&
+            TryPositive(fields.GroupingFactor.Text, out grouping) &&
+            TryPositive(fields.ThermalInsulationFactor.Text, out insulation) &&
+            TryPositiveInteger(fields.LoadedConductorCount.Text, out _) &&
+            !string.IsNullOrWhiteSpace(fields.ProtectiveDeviceCharacteristic.Text) &&
+            !string.IsNullOrWhiteSpace(fields.ReferenceSource.Text);
+        if (!complete)
+        {
+            fields.Relation.Text = "Ib <= In <= Iz corrected · UNKNOWN / INCOMPLETE EVIDENCE";
+            fields.Relation.SetTextColor(Color.ParseColor("#f2c94c"));
+            return;
+        }
+        double corrected = reference * ambient * grouping * insulation;
+        bool pass = ib <= protective && protective <= corrected;
+        string ibRelation = ib <= protective ? "<=" : ">";
+        string izRelation = protective <= corrected ? "<=" : ">";
+        fields.Relation.Text = $"Ib {ib:0.##} A {ibRelation} In {protective:0.##} A {izRelation} Iz {corrected:0.##} A corrected · {(pass ? "PASS" : "WARNING")}";
+        fields.Relation.SetTextColor(Color.ParseColor(pass ? "#66e6a5" : "#ff7b72"));
+    }
+
+    private static CircuitDesign ReadCircuitDesign(CircuitDesignFields fields, ElectricalCableSpec electrical)
+    {
+        CircuitDesign? previous = electrical.Design;
+        int phases = electrical.Preset is CircuitPreset.ThreePhase or CircuitPreset.ThreePhaseNeutral ? 3 : 1;
+        double voltage = phases == 3 ? 400 : 230;
+        return new CircuitDesign(
+            previous?.NominalVoltageVolts ?? voltage,
+            previous?.PhaseCount ?? phases,
+            previous?.ConductorMaterial ?? ConductorMaterial.Copper,
+            ParseOptionalPositiveInteger(fields.LoadedConductorCount.Text, "Loaded conductors"),
+            ParseOptionalPositive(fields.DesignCurrent.Text, "Ib"),
+            ParseOptionalPositive(fields.ProtectiveDeviceCurrent.Text, "In"),
+            NullIfBlank(fields.ProtectiveDeviceCharacteristic.Text),
+            ParseOptionalPositive(fields.ReferenceCapacity.Text, "Reference capacity"),
+            ParseRequiredPositive(fields.AmbientFactor.Text, "Ambient factor"),
+            ParseRequiredPositive(fields.GroupingFactor.Text, "Grouping factor"),
+            ParseRequiredPositive(fields.ThermalInsulationFactor.Text, "Thermal insulation factor"),
+            NullIfBlank(fields.ReferenceSource.Text));
+    }
+
+    private static bool IsPowerPreset(CircuitPreset preset) => preset is not (CircuitPreset.Data or CircuitPreset.Custom);
 
     private void DeleteRoute(ObjectId id)
     {
@@ -1571,6 +1714,48 @@ public sealed class MainActivity : Activity
         if (number < 0) throw new ArgumentException($"{label} cannot be negative.");
         return number;
     }
+
+    private static double? ParseOptionalPositive(string? value, string label)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        double number = ParseLength(value);
+        if (!double.IsFinite(number) || number <= 0) throw new ArgumentException($"{label} must be greater than zero.");
+        return number;
+    }
+
+    private static double ParseRequiredPositive(string? value, string label) =>
+        ParseOptionalPositive(value, label) ?? throw new ArgumentException($"{label} is required.");
+
+    private static int? ParseOptionalPositiveInteger(string? value, string label)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.CurrentCulture, out int number) && number > 0) return number;
+        throw new ArgumentException($"{label} must be a whole number greater than zero.");
+    }
+
+    private static bool TryPositive(string? value, out double number)
+    {
+        number = 0;
+        try
+        {
+            double? parsed = ParseOptionalPositive(value, "Value");
+            if (parsed is null) return false;
+            number = parsed.Value;
+            return true;
+        }
+        catch (Exception) when (value is not null)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryPositiveInteger(string? value, out int number)
+    {
+        number = 0;
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.CurrentCulture, out number) && number > 0;
+    }
+
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static double ParseCoordinate(string value, string label)
     {

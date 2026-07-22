@@ -511,8 +511,45 @@ Require(Math.Abs(sizingFill.FillRatio - (3 * 3.4 * 3.4 / (10.7 * 10.7))) < 0.000
 ElectricalDesignCheck sizingCheck = sizingAnalysis.ElectricalDesignChecks.Single();
 Require(sizingCheck.Status == DesignCheckStatus.Pass && Math.Abs(sizingCheck.CorrectedCurrentCarryingCapacityAmperes!.Value - 18) < 0.001,
     "Current-capacity planning must apply explicit correction factors and verify Ib <= In <= Iz.");
-Require(sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical!.Design!.ReferenceSource == "licensed test fixture",
-    "Schema 10 must preserve traceable thermal sizing inputs.");
+CircuitDesign roundTrippedDesign = sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical!.Design!;
+Require(roundTrippedDesign is
+    {
+        NominalVoltageVolts: 230,
+        PhaseCount: 1,
+        ConductorMaterial: ConductorMaterial.Copper,
+        LoadedConductorCount: 2,
+        DesignCurrentAmperes: 13,
+        ProtectiveDeviceAmperes: 16,
+        ProtectiveDeviceCharacteristic: "B",
+        ReferenceCurrentCarryingCapacityAmperes: 20,
+        AmbientCorrectionFactor: 1,
+        GroupingCorrectionFactor: 0.9,
+        ThermalInsulationCorrectionFactor: 1,
+        ReferenceSource: "licensed test fixture",
+    }, "TOML round-trip must preserve every traceable circuit-design input and reference source.");
+var conduitAssignmentHistory = new CommandHistory();
+conduitAssignmentHistory.Execute(sizingLoaded, new SetCableConduitCommand(ObjectId.Parse("fk-group"), null));
+conduitAssignmentHistory.Execute(sizingLoaded, new SetCableConduitCommand(ObjectId.Parse("fk-group"), sizingConduitId));
+Require(sizingLoaded.RequireCable(ObjectId.Parse("fk-group")).Electrical!.Design == roundTrippedDesign,
+    "Assigning a cable to a conduit must preserve its detailed electrical design.");
+var failingSizingDocument = new ProjectDocument("Failing circuit sizing");
+failingSizingDocument.Add(new CableRoute(ObjectId.Parse("failing-circuit"), "FAIL", CableKind.Mains3G25, sizingRoute,
+    Electrical: new ElectricalCableSpec(sizedFk.Product, sizedFk.Preset, sizedFk.Conductors, sizedFk.Shielding,
+        sizedFk.PoeCapable, sizedFk.OutsideDiameterMillimetres,
+        new CircuitDesign(230, 1, loadedConductorCount: 2, designCurrentAmperes: 20,
+            protectiveDeviceAmperes: 20, protectiveDeviceCharacteristic: "C",
+            referenceCurrentCarryingCapacityAmperes: 18, referenceSource: "verified failing fixture"))));
+ElectricalDesignCheck failingSizingCheck = ProjectAnalyzer.Analyze(failingSizingDocument).ElectricalDesignChecks.Single();
+Require(failingSizingCheck.Status == DesignCheckStatus.Warning && failingSizingCheck.CorrectedCurrentCarryingCapacityAmperes == 18,
+    "A complete Ib <= In <= Iz failure must produce a warning with the corrected capacity.");
+var incompleteSizingDocument = new ProjectDocument("Incomplete circuit sizing");
+incompleteSizingDocument.Add(new CableRoute(ObjectId.Parse("incomplete-circuit"), "UNKNOWN", CableKind.Mains3G25, sizingRoute,
+    Electrical: new ElectricalCableSpec(sizedFk.Product, sizedFk.Preset, sizedFk.Conductors, sizedFk.Shielding,
+        sizedFk.PoeCapable, sizedFk.OutsideDiameterMillimetres,
+        new CircuitDesign(230, 1, loadedConductorCount: 2, designCurrentAmperes: 13,
+            protectiveDeviceAmperes: 16, referenceCurrentCarryingCapacityAmperes: 20))));
+Require(ProjectAnalyzer.Analyze(incompleteSizingDocument).ElectricalDesignChecks.Single().Status == DesignCheckStatus.Unknown,
+    "Incomplete traceability inputs must remain unknown rather than receiving optimistic defaults.");
 Require(sizingLoaded.RequireConduit(sizingConduitId).NominalDiameterMillimetres == 16,
     "Schema 10 must keep nominal conduit size separate from actual inner diameter.");
 var sizingHistory = new CommandHistory();

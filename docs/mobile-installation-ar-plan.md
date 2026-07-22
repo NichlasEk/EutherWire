@@ -157,8 +157,10 @@ synchronize when a local EutherWire host becomes reachable again.
   synchronized when conduit vertices move;
 - implemented: show conduit contents, physical fill against the 40% planning
   limit, grouped-circuit warnings, and honest pass/warning/unknown thermal state;
-- next: enter traceable circuit current, protective-device, correction-factor,
-  and reference-capacity data on mobile before camera guidance work.
+- implemented: enter traceable circuit current, protective-device current and
+  characteristic, loaded conductor count, correction factors, verified
+  reference capacity, and source with a live corrected `Ib <= In <= Iz` result;
+- next: capture project-linked field photos before camera guidance work.
 
 ### M2: Camera orientation preview
 

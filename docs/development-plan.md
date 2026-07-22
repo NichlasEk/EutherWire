@@ -251,9 +251,11 @@ also draws typed cables and 16/20/25 mm conduits, snaps cable endpoints to real
 ports, and edits saved routes through large numbered vertices. Routes render in
 2D/3D and appear in Install. Cables can now be assigned to conduits, inherit
 their geometry, and feed live conduit-content, physical-fill, grouping, and
-thermal-status feedback in Mobile Design. The next electrical slice brings the
-traceable Ib/In/Iz and correction-factor inputs to mobile. Project-linked photo
-capture and camera/gyro guidance follow the measured baseline.
+thermal-status feedback in Mobile Design. Power cable dialogs now persist
+traceable Ib/In/Iz evidence, protection characteristic, loaded conductors,
+correction factors, and source through the shared electrical model while
+previewing the corrected relation live. Project-linked photo capture is the
+next product slice; camera/gyro guidance follows that measured baseline.
 
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets

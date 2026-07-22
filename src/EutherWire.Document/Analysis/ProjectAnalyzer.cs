@@ -446,12 +446,14 @@ public static class ProjectAnalyzer
             }
 
             CircuitDesign design = electrical.Design;
-            if (design.DesignCurrentAmperes is not double ib ||
+            if (design.LoadedConductorCount is null ||
+                design.DesignCurrentAmperes is not double ib ||
                 design.ProtectiveDeviceAmperes is not double protectiveDevice ||
+                string.IsNullOrWhiteSpace(design.ProtectiveDeviceCharacteristic) ||
                 design.CorrectedCurrentCarryingCapacityAmperes is not double iz ||
                 string.IsNullOrWhiteSpace(design.ReferenceSource))
             {
-                AddUnknown(cable, document, diagnostics, checks, "Thermal result is unknown until Ib, protective device, reference capacity and its source are supplied.");
+                AddUnknown(cable, document, diagnostics, checks, "Thermal result is unknown until loaded conductors, Ib, protective device and characteristic, reference capacity, correction factors and source are supplied.");
                 continue;
             }
 

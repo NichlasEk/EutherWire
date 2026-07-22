@@ -221,7 +221,12 @@ The cable editor can assign a cable to any drawn conduit; the cable then follows
 the conduit geometry. Design shows contained cable names, physical fill against
 the 40% planning limit, and `PASS`, `WARNING`, `VERIFY GROUPING`, or `UNKNOWN`
 thermal state from the shared electrical analysis. Unknown data stays unknown
-until traceable current-capacity inputs have been supplied.
+until traceable current-capacity inputs have been supplied. For power presets,
+the same mobile cable dialog now records `Ib`, protective-device current and
+characteristic, loaded conductor count, verified reference capacity, ambient/
+grouping/insulation factors, and the human-readable source. It previews the
+corrected `Ib <= In <= Iz` relation live and preserves the cable product and
+conductor list when only design evidence changes.
 
 ```sh
 ./eutherwire.sh mobile-build
