@@ -1,6 +1,7 @@
 using Android.Content;
 using Android.Graphics;
 using Android.Views;
+using EutherWire.Document.Editing;
 using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 using GraphicsPath = Android.Graphics.Path;
@@ -17,6 +18,8 @@ public enum RoomPreviewMode
 public sealed class RoomPreviewView : View
 {
     private readonly ProjectDocument _document;
+    private readonly Action<ObjectId?> _selectionChanged;
+    private readonly Action<ObjectId> _deviceMoved;
     private readonly ScaleGestureDetector _scaleDetector;
     private readonly Paint _paint = new(PaintFlags.AntiAlias);
     private float _lastX;
@@ -26,11 +29,22 @@ public sealed class RoomPreviewView : View
     private float _zoom = 1;
     private double _yaw = -0.72;
     private double _pitch = 0.58;
+    private ObjectId? _draggedDeviceId;
+    private bool _dragMoved;
 
-    public RoomPreviewView(Context context, ProjectDocument document, RoomPreviewMode mode) : base(context)
+    public RoomPreviewView(
+        Context context,
+        ProjectDocument document,
+        RoomPreviewMode mode,
+        ObjectId? selectedDeviceId,
+        Action<ObjectId?> selectionChanged,
+        Action<ObjectId> deviceMoved) : base(context)
     {
         _document = document;
+        _selectionChanged = selectionChanged;
+        _deviceMoved = deviceMoved;
         Mode = mode;
+        SelectedDeviceId = selectedDeviceId;
         _scaleDetector = new ScaleGestureDetector(context, new ScaleListener(this));
         SetBackgroundColor(Color.ParseColor("#07131a"));
         ContentDescription = mode == RoomPreviewMode.Plan
@@ -39,6 +53,7 @@ public sealed class RoomPreviewView : View
     }
 
     public RoomPreviewMode Mode { get; }
+    public ObjectId? SelectedDeviceId { get; private set; }
 
     public void ResetView()
     {
@@ -60,13 +75,38 @@ public sealed class RoomPreviewView : View
                 Parent?.RequestDisallowInterceptTouchEvent(true);
                 _lastX = motionEvent.GetX();
                 _lastY = motionEvent.GetY();
+                _dragMoved = false;
+                if (Mode == RoomPreviewMode.Plan && HitPlanDevice(_lastX, _lastY) is ObjectId deviceId)
+                {
+                    SelectedDeviceId = deviceId;
+                    _draggedDeviceId = deviceId;
+                    _selectionChanged(deviceId);
+                    Invalidate();
+                }
+                else
+                {
+                    _draggedDeviceId = null;
+                }
                 return true;
             case MotionEventActions.Move when !_scaleDetector.IsInProgress && motionEvent.PointerCount == 1:
                 float x = motionEvent.GetX();
                 float y = motionEvent.GetY();
                 float dx = x - _lastX;
                 float dy = y - _lastY;
-                if (Mode == RoomPreviewMode.Plan)
+                if (Mode == RoomPreviewMode.Plan && _draggedDeviceId is ObjectId draggedDeviceId)
+                {
+                    Point3 destination = PlanScreenToDocument(x, y, _document.RequireDevice(draggedDeviceId).ElevationMillimetres);
+                    destination = new Point3(
+                        Math.Round(destination.X / 100) * 100,
+                        Math.Round(destination.Y / 100) * 100,
+                        Math.Round(destination.Z / 100) * 100);
+                    DocumentHandleEditor.SetSpatialPosition(
+                        _document,
+                        new EditHandleId(draggedDeviceId, EditHandleKind.Move),
+                        destination);
+                    _dragMoved = true;
+                }
+                else if (Mode == RoomPreviewMode.Plan)
                 {
                     _panX += dx;
                     _panY += dy;
@@ -83,6 +123,9 @@ public sealed class RoomPreviewView : View
             case MotionEventActions.Up:
             case MotionEventActions.Cancel:
                 Parent?.RequestDisallowInterceptTouchEvent(false);
+                if (_draggedDeviceId is ObjectId movedDeviceId && _dragMoved)
+                    _deviceMoved(movedDeviceId);
+                _draggedDeviceId = null;
                 PerformClick();
                 return true;
             default:
@@ -124,6 +167,8 @@ public sealed class RoomPreviewView : View
 
         foreach (BuildingOpening opening in _document.Openings.Values.OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase))
             DrawPlanOpening(canvas, opening, space, left, top, scale, wall);
+        foreach (Device device in _document.Devices.Values.OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase))
+            DrawPlanDevice(canvas, device, space, left, top, scale);
 
         DrawText(canvas, $"{space.WidthMillimetres / 1000:0.###} m", (left + right) / 2, top - Dp(13), "#dff7ff", Dp(12), Paint.Align.Center!);
         DrawText(canvas, $"{space.DepthMillimetres / 1000:0.###} m", left - Dp(15), (top + bottom) / 2, "#dff7ff", Dp(12), Paint.Align.Center!, -90);
@@ -174,6 +219,62 @@ public sealed class RoomPreviewView : View
         float labelX = (x1 + x2) / 2;
         float labelY = (y1 + y2) / 2 - Dp(7);
         DrawText(canvas, opening.Label.ToUpperInvariant(), labelX, labelY, colour, Dp(9), Paint.Align.Center!);
+    }
+
+    private void DrawPlanDevice(Canvas canvas, Device device, SpaceVolume space, float left, float top, float scale)
+    {
+        float x = left + (float)(device.Position.X - space.Origin.X) * scale;
+        float y = top + (float)(device.Position.Y - space.Origin.Y) * scale;
+        bool selected = SelectedDeviceId == device.Id;
+        if (selected)
+        {
+            DrawCircle(canvas, x, y, Dp(19), "#f2c94c", PaintStyle.Stroke!, Dp(3));
+            DrawLine(canvas, x - Dp(26), y, x + Dp(26), y, "#f2c94c", Dp(1));
+            DrawLine(canvas, x, y - Dp(26), x, y + Dp(26), "#f2c94c", Dp(1));
+        }
+        DrawCircle(canvas, x, y, Dp(selected ? 12 : 10), DeviceColour(device.Kind), PaintStyle.Fill!, 0);
+        DrawCircle(canvas, x, y, Dp(selected ? 12 : 10), "#07131a", PaintStyle.Stroke!, Dp(1.5f));
+        DrawText(canvas, DeviceGlyph(device.Kind), x, y + Dp(3.5f), "#07131a", Dp(8), Paint.Align.Center!);
+        DrawText(canvas, device.Label.ToUpperInvariant(), x, y - Dp(17), selected ? "#f2c94c" : "#dff7ff", Dp(8.5f), Paint.Align.Center!);
+    }
+
+    private ObjectId? HitPlanDevice(float screenX, float screenY)
+    {
+        PlanTransform transform = PlanCoordinates();
+        return _document.Devices.Values
+            .Select(device => new
+            {
+                device.Id,
+                Distance = Math.Sqrt(
+                    Math.Pow(screenX - (transform.Left + (device.Position.X - _document.Space.Origin.X) * transform.Scale), 2) +
+                    Math.Pow(screenY - (transform.Top + (device.Position.Y - _document.Space.Origin.Y) * transform.Scale), 2)),
+            })
+            .Where(hit => hit.Distance <= Dp(30))
+            .OrderBy(hit => hit.Distance)
+            .Select(hit => (ObjectId?)hit.Id)
+            .FirstOrDefault();
+    }
+
+    private Point3 PlanScreenToDocument(float screenX, float screenY, double elevation)
+    {
+        PlanTransform transform = PlanCoordinates();
+        return new Point3(
+            _document.Space.Origin.X + (screenX - transform.Left) / transform.Scale,
+            _document.Space.Origin.Y + (screenY - transform.Top) / transform.Scale,
+            elevation);
+    }
+
+    private PlanTransform PlanCoordinates()
+    {
+        SpaceVolume space = _document.Space;
+        float margin = Dp(38);
+        float availableWidth = Math.Max(Width - margin * 2, Dp(40));
+        float availableHeight = Math.Max(Height - margin * 2, Dp(40));
+        float scale = (float)Math.Min(availableWidth / space.WidthMillimetres, availableHeight / space.DepthMillimetres) * _zoom;
+        return new PlanTransform(
+            Width / 2f - (float)space.WidthMillimetres * scale / 2 + _panX,
+            Height / 2f - (float)space.DepthMillimetres * scale / 2 + _panY,
+            scale);
     }
 
     private void DrawRoom3D(Canvas canvas)
@@ -230,6 +331,17 @@ public sealed class RoomPreviewView : View
             float labelX = points.Average(point => point.X);
             float labelY = points.Average(point => point.Y);
             DrawText(canvas, opening.Label.ToUpperInvariant(), labelX, labelY - Dp(5), "#ffffff", Dp(9), Paint.Align.Center!);
+        }
+
+        foreach (Device device in _document.Devices.Values.OrderBy(device => ProjectRaw(LocalPoint(new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres), space)).Depth))
+        {
+            ScreenPoint point = ToScreen(LocalPoint(new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres), space));
+            bool selected = SelectedDeviceId == device.Id;
+            if (selected) DrawCircle(canvas, point.X, point.Y, Dp(17), "#f2c94c", PaintStyle.Stroke!, Dp(3));
+            DrawCircle(canvas, point.X, point.Y, Dp(selected ? 11 : 9), DeviceColour(device.Kind), PaintStyle.Fill!, 0);
+            DrawCircle(canvas, point.X, point.Y, Dp(selected ? 11 : 9), "#07131a", PaintStyle.Stroke!, Dp(1.5f));
+            DrawText(canvas, DeviceGlyph(device.Kind), point.X, point.Y + Dp(3), "#07131a", Dp(7), Paint.Align.Center!);
+            DrawText(canvas, device.Label.ToUpperInvariant(), point.X, point.Y - Dp(15), selected ? "#f2c94c" : "#dff7ff", Dp(8), Paint.Align.Center!);
         }
 
         DrawText(canvas, $"{space.WidthMillimetres / 1000:0.###} × {space.DepthMillimetres / 1000:0.###} × {space.HeightMillimetres / 1000:0.###} m", Dp(12), Height - Dp(13), "#dff7ff", Dp(11), Paint.Align.Left!);
@@ -309,6 +421,15 @@ public sealed class RoomPreviewView : View
         canvas.DrawLine(x1, y1, x2, y2, _paint);
     }
 
+    private void DrawCircle(Canvas canvas, float x, float y, float radius, string colour, PaintStyle style, float width)
+    {
+        _paint.SetStyle(style);
+        _paint.Color = Color.ParseColor(colour);
+        _paint.Alpha = 255;
+        _paint.StrokeWidth = width;
+        canvas.DrawCircle(x, y, radius, _paint);
+    }
+
     private void DrawText(Canvas canvas, string text, float x, float y, string colour, float size, Paint.Align align, float rotation = 0)
     {
         _paint.SetStyle(PaintStyle.Fill);
@@ -337,6 +458,32 @@ public sealed class RoomPreviewView : View
         _ => "#c792ea",
     };
 
+    private static string DeviceColour(DeviceKind kind) => kind switch
+    {
+        DeviceKind.DistributionBoard => "#ff9f43",
+        DeviceKind.JunctionBox => "#f2c94c",
+        DeviceKind.Outlet => "#66e6a5",
+        DeviceKind.Light => "#fff176",
+        DeviceKind.Camera => "#c792ea",
+        DeviceKind.PoeSwitch => "#55d7ff",
+        DeviceKind.AccessPoint => "#72dfff",
+        DeviceKind.PatchPanel => "#8fb7c9",
+        _ => "#dff7ff",
+    };
+
+    private static string DeviceGlyph(DeviceKind kind) => kind switch
+    {
+        DeviceKind.DistributionBoard => "DB",
+        DeviceKind.JunctionBox => "JB",
+        DeviceKind.Outlet => "O",
+        DeviceKind.Light => "L",
+        DeviceKind.Camera => "C",
+        DeviceKind.PoeSwitch => "SW",
+        DeviceKind.AccessPoint => "AP",
+        DeviceKind.PatchPanel => "PP",
+        _ => "+",
+    };
+
     private sealed class ScaleListener(RoomPreviewView owner) : ScaleGestureDetector.SimpleOnScaleGestureListener
     {
         public override bool OnScale(ScaleGestureDetector detector)
@@ -350,5 +497,6 @@ public sealed class RoomPreviewView : View
     private readonly record struct Vec3(double X, double Y, double Z);
     private readonly record struct RawPoint(double X, double Y, double Depth);
     private readonly record struct ScreenPoint(float X, float Y, double Depth);
+    private readonly record struct PlanTransform(float Left, float Top, float Scale);
     private sealed record Face(Vec3[] Points, string Colour);
 }

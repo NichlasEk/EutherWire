@@ -37,6 +37,15 @@ to pan the plan or rotate the room, pinch to zoom, and use `RESET VIEW` to
 recover the fitted overview. Doors, garage doors, windows, and penetrations are
 colour-coded and labelled in both views.
 
+Use `+ PLACE DEVICE` to add a junction box, outlet, distribution board, light,
+camera, PoE switch, or access point. The form suggests a useful mounting surface
+and elevation, while allowing exact X/Y/Z input. Tap the resulting symbol in the
+2D plan and drag its large yellow handle to move it in 100 mm steps. A mounted
+object remains constrained to its wall, floor, or ceiling and is saved when the
+drag ends. `EDIT SELECTED` changes its label, mounting surface, or exact position
+and can delete it. The object is immediately available as a planned task in
+`INSTALL` and is also rendered in the 3D review.
+
 1. On desktop, create a snapshot:
 
    ```sh
@@ -70,5 +79,5 @@ offline status/note/length editing, recovery, and event export. M1.5 now adds
 the three-mode shell, numeric room/opening survey, project snapshot export, and
 touch-driven 2D/3D review of the measured shell. It deliberately has no camera,
 gyroscope, AR overlay, photo capture, QR scan, or network sync yet. The next
-useful design slice is handle-driven placement of installation objects; camera
-orientation preview remains M2.
+useful design slice is cable/conduit routing between the newly placeable
+installation objects; camera orientation preview remains M2.

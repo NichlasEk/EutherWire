@@ -4,8 +4,8 @@
     <OutputType>Exe</OutputType>
     <ApplicationId>se.eutherwire.mobile</ApplicationId>
     <ApplicationTitle>EutherWire</ApplicationTitle>
-    <ApplicationVersion>2</ApplicationVersion>
-    <ApplicationDisplayVersion>0.1.1</ApplicationDisplayVersion>
+    <ApplicationVersion>3</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.2</ApplicationDisplayVersion>
     <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
     <JavaSdkDirectory Condition="'$(JavaSdkDirectory)' == '' and Exists('/usr/lib/jvm/java-17-openjdk')">/usr/lib/jvm/java-17-openjdk</JavaSdkDirectory>
     <AndroidNeedsInternetPermission>false</AndroidNeedsInternetPermission>

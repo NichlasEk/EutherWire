@@ -145,8 +145,12 @@ synchronize when a local EutherWire host becomes reachable again.
   openings immediately become installation tasks;
 - implemented: review the measured room as a touch-driven 2D plan and rotatable
   3D shell with labelled, colour-coded fixed openings;
-- next: place installation objects in the mobile design view using large touch
-  handles and exact numeric fallback fields.
+- implemented: place common installation objects with smart surface/elevation
+  defaults, exact XYZ fallback fields, and large constrained 2D move handles;
+- implemented: render placed objects in 2D/3D and expose them immediately as
+  installation tasks through the shared document model;
+- next: route conduits and cables between placed objects with touch-friendly
+  vertices and port snapping.
 
 ### M2: Camera orientation preview
 

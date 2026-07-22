@@ -209,7 +209,10 @@ It also starts a measured project on the phone through explicit Survey,
 Design, and Install modes: numeric room construction, wall-mounted fixed
 openings, and full project snapshot export share the desktop document model.
 Design includes a touch-driven 2D plan and rotatable 3D room review built from
-that same measured shell; drag pans or rotates and pinch controls zoom.
+that same measured shell; drag pans or rotates and pinch controls zoom. Mobile
+Design can place distribution boards, junction boxes, outlets, lights, cameras, PoE
+switches, and access points with mounting surfaces, exact XYZ fallback fields,
+and large 2D move handles that keep mounted objects constrained to the shell.
 
 ```sh
 ./eutherwire.sh mobile-build

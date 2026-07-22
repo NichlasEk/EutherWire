@@ -7,6 +7,7 @@ using Android.Views.InputMethods;
 using Android.Widget;
 using EutherWire.Document.Analysis;
 using EutherWire.Document.Commands;
+using EutherWire.Document.Editing;
 using EutherWire.Document.Geometry;
 using EutherWire.Document.Model;
 using EutherWire.Document.Serialization;
@@ -35,6 +36,31 @@ public sealed class MainActivity : Activity
 
     private readonly string[] _filterNames = ["ALL", "TO DO", "DONE", "BLOCKED"];
     private readonly Dictionary<MobileMode, Button> _modeButtons = [];
+    private static readonly DeviceKind[] PlacementKinds =
+    [
+        DeviceKind.JunctionBox,
+        DeviceKind.Outlet,
+        DeviceKind.DistributionBoard,
+        DeviceKind.Light,
+        DeviceKind.Camera,
+        DeviceKind.PoeSwitch,
+        DeviceKind.AccessPoint,
+    ];
+    private static readonly MountingSurface[] DeviceSurfaces =
+    [
+        MountingSurface.Free,
+        MountingSurface.FloorInterior,
+        MountingSurface.CeilingInterior,
+        MountingSurface.NorthWallInterior,
+        MountingSurface.EastWallInterior,
+        MountingSurface.SouthWallInterior,
+        MountingSurface.WestWallInterior,
+        MountingSurface.CeilingExterior,
+        MountingSurface.NorthWallExterior,
+        MountingSurface.EastWallExterior,
+        MountingSurface.SouthWallExterior,
+        MountingSurface.WestWallExterior,
+    ];
     private ProjectDocument? _document;
     private string? _projectDirectory;
     private LinearLayout? _taskList;
@@ -44,6 +70,9 @@ public sealed class MainActivity : Activity
     private Spinner? _filter;
     private Button? _exportButton;
     private RoomPreviewView? _roomPreview;
+    private TextView? _deviceSelection;
+    private Button? _editDeviceButton;
+    private ObjectId? _selectedDeviceId;
     private MobileMode _mode = MobileMode.Survey;
     private RoomPreviewMode _previewMode = RoomPreviewMode.Plan;
 
@@ -282,10 +311,33 @@ public sealed class MainActivity : Activity
         viewModes.AddView(room3D, Weighted());
         _taskList.AddView(viewModes, MatchWrap());
 
-        _roomPreview = new RoomPreviewView(this, _document, _previewMode);
+        if (_selectedDeviceId is ObjectId selectedId && !_document.Devices.ContainsKey(selectedId))
+            _selectedDeviceId = null;
+        _roomPreview = new RoomPreviewView(
+            this,
+            _document,
+            _previewMode,
+            _selectedDeviceId,
+            SelectDeviceInPreview,
+            SaveDeviceMovement);
         var previewParameters = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, Dp(420));
         previewParameters.SetMargins(0, Dp(8), 0, Dp(8));
         _taskList.AddView(_roomPreview, previewParameters);
+
+        var placementActions = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        Button place = ActionButton("+ PLACE DEVICE");
+        place.Click += (_, _) => ShowDevicePalette();
+        placementActions.AddView(place, Weighted());
+        _editDeviceButton = ActionButton("EDIT SELECTED");
+        _editDeviceButton.Click += (_, _) =>
+        {
+            if (_selectedDeviceId is ObjectId id) ShowDeviceDialog(id);
+        };
+        placementActions.AddView(_editDeviceButton, Weighted());
+        _taskList.AddView(placementActions, MatchWrap());
+        _deviceSelection = Text(string.Empty, 12, "#f2c94c");
+        _taskList.AddView(_deviceSelection);
+        UpdateDeviceSelectionUi();
 
         var previewActions = new LinearLayout(this) { Orientation = Orientation.Horizontal };
         Button reset = ActionButton("RESET VIEW");
@@ -301,8 +353,38 @@ public sealed class MainActivity : Activity
             : "DRAG TO ROTATE · PINCH TO ZOOM";
         _taskList.AddView(Text(gesture, 12, "#55d7ff"));
         _taskList.AddView(Text(
-            "The preview is built directly from the measured room and fixed openings. Export the project to continue placing boards, boxes, lights, conduits and cables on desktop.",
+            "Tap a device to select it. In 2D, drag the large yellow handle to move it in 100 mm steps; mounted devices stay constrained to their wall, floor, or ceiling.",
             14, "#dff7ff"));
+    }
+
+    private void SelectDeviceInPreview(ObjectId? id)
+    {
+        _selectedDeviceId = id;
+        UpdateDeviceSelectionUi();
+    }
+
+    private void SaveDeviceMovement(ObjectId id)
+    {
+        if (_document is null || _projectDirectory is null) return;
+        _selectedDeviceId = id;
+        ProjectToml.Save(_projectDirectory, _document);
+        Device device = _document.RequireDevice(id);
+        ShowMessage($"Moved {device.Label} · X {device.Position.X:0} · Y {device.Position.Y:0} · Z {device.ElevationMillimetres:0} mm");
+        UpdateDeviceSelectionUi();
+    }
+
+    private void UpdateDeviceSelectionUi()
+    {
+        Device? selectedDevice = null;
+        if (_document is not null && _selectedDeviceId is ObjectId id)
+            _document.Devices.TryGetValue(id, out selectedDevice);
+        if (_editDeviceButton is not null) _editDeviceButton.Enabled = selectedDevice is not null;
+        if (_deviceSelection is not null)
+        {
+            _deviceSelection.Text = selectedDevice is not null
+                ? $"SELECTED · {selectedDevice.Label} · {Name(selectedDevice.Kind.ToString())} · X {selectedDevice.Position.X:0} · Y {selectedDevice.Position.Y:0} · Z {selectedDevice.ElevationMillimetres:0} mm"
+                : "SELECT A DEVICE IN THE 2D PLAN";
+        }
     }
 
     private Button PreviewModeButton(string label, RoomPreviewMode mode)
@@ -318,6 +400,162 @@ public sealed class MainActivity : Activity
         };
         return button;
     }
+
+    private void ShowDevicePalette()
+    {
+        var builder = new AlertDialog.Builder(this);
+        builder.SetTitle("Place installation object");
+        builder.SetItems(PlacementKinds.Select(kind => Name(kind.ToString())).ToArray(), (_, args) =>
+            ShowDeviceDialog(null, PlacementKinds[args.Which]));
+        builder.SetNegativeButton("CANCEL", (_, _) => { });
+        builder.Show();
+    }
+
+    private void ShowDeviceDialog(ObjectId? deviceId, DeviceKind? placementKind = null)
+    {
+        if (_document is null) return;
+        Device? device = deviceId is ObjectId id ? _document.RequireDevice(id) : null;
+        DeviceKind initialKind = device?.Kind ?? placementKind ?? DeviceKind.JunctionBox;
+        (MountingSurface defaultSurface, Point3 defaultPosition) = DefaultDevicePosition(initialKind, _document.Space);
+        MountingSurface initialSurface = device?.MountingSurface ?? defaultSurface;
+        Point3 initialPosition = device is null
+            ? defaultPosition
+            : new Point3(device.Position.X, device.Position.Y, device.ElevationMillimetres);
+
+        var form = Form();
+        EditText label = NumberOrTextField(device?.Label ?? NextDeviceLabel(initialKind), numeric: false);
+        AddField(form, "LABEL", label);
+        var kind = new Spinner(this) { Adapter = SpinnerAdapter(PlacementKinds.Select(value => Name(value.ToString())).ToArray()) };
+        int kindIndex = Array.IndexOf(PlacementKinds, initialKind);
+        kind.SetSelection(Math.Max(kindIndex, 0));
+        kind.Enabled = device is null;
+        AddField(form, device is null ? "TYPE" : "TYPE (FIXED AFTER PLACEMENT)", kind);
+        var surface = new Spinner(this) { Adapter = SpinnerAdapter(DeviceSurfaces.Select(SurfaceName).ToArray()) };
+        surface.SetSelection(Math.Max(Array.IndexOf(DeviceSurfaces, initialSurface), 0));
+        AddField(form, "MOUNTING SURFACE", surface);
+        EditText x = NumberOrTextField(initialPosition.X.ToString("0.###", CultureInfo.InvariantCulture));
+        EditText y = NumberOrTextField(initialPosition.Y.ToString("0.###", CultureInfo.InvariantCulture));
+        EditText z = NumberOrTextField(initialPosition.Z.ToString("0.###", CultureInfo.InvariantCulture));
+        AddField(form, "X POSITION (MM)", x);
+        AddField(form, "Y POSITION (MM)", y);
+        AddField(form, "Z / HEIGHT (MM)", z);
+        form.AddView(Text("The selected mounting surface constrains the final position to the room shell.", 12, "#9eb0bb"));
+
+        var builder = new AlertDialog.Builder(this);
+        builder.SetTitle(device is null ? $"Place {Name(initialKind.ToString())}" : $"Edit {device.Label}");
+        builder.SetView(InScroll(form));
+        builder.SetNegativeButton("CANCEL", (_, _) => { });
+        if (device is not null) builder.SetNeutralButton("DELETE", (_, _) => DeleteDevice(device.Id));
+        builder.SetPositiveButton("SAVE", (_, _) => SaveDevice(
+            device?.Id,
+            label.Text ?? string.Empty,
+            kind.SelectedItemPosition,
+            surface.SelectedItemPosition,
+            x.Text!,
+            y.Text!,
+            z.Text!));
+        builder.Show();
+    }
+
+    private void SaveDevice(ObjectId? deviceId, string label, int kindIndex, int surfaceIndex, string xText, string yText, string zText)
+    {
+        if (_document is null || _projectDirectory is null) return;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(label)) throw new ArgumentException("Device label is required.");
+            DeviceKind kind = deviceId is ObjectId existingId
+                ? _document.RequireDevice(existingId).Kind
+                : PlacementKinds[kindIndex];
+            MountingSurface surface = DeviceSurfaces[surfaceIndex];
+            var requested = new Point3(ParseCoordinate(xText, "X"), ParseCoordinate(yText, "Y"), ParseNonNegative(zText, "Z / height"));
+            Point3 constrained = MountingSurfaceGeometry.Constrain(_document.Space, surface, requested);
+            ObjectId id;
+            if (deviceId is ObjectId currentId)
+            {
+                id = currentId;
+                new SetObjectLabelCommand(id, label.Trim()).Apply(_document);
+                new SetDeviceMountingSurfaceCommand(id, surface).Apply(_document);
+                DocumentHandleEditor.SetSpatialPosition(_document, new EditHandleId(id, EditHandleKind.Move), constrained);
+            }
+            else
+            {
+                id = ObjectId.New();
+                var device = new Device(id, kind, constrained.Plan, label.Trim(), DefaultPorts(kind), constrained.Z, surface);
+                new AddDeviceCommand(device).Apply(_document);
+            }
+            _selectedDeviceId = id;
+            ProjectToml.Save(_projectDirectory, _document);
+            ShowMessage(deviceId is null ? $"Placed {label.Trim()}." : $"Updated {label.Trim()}.");
+            RenderTasks();
+        }
+        catch (Exception exception)
+        {
+            ShowMessage($"Could not save device: {exception.Message}", error: true);
+        }
+    }
+
+    private void DeleteDevice(ObjectId id)
+    {
+        if (_document is null || _projectDirectory is null) return;
+        try
+        {
+            string label = _document.RequireDevice(id).Label;
+            new DeleteObjectCommand(id).Apply(_document);
+            if (_selectedDeviceId == id) _selectedDeviceId = null;
+            ProjectToml.Save(_projectDirectory, _document);
+            ShowMessage($"Deleted {label}.");
+            RenderTasks();
+        }
+        catch (Exception exception)
+        {
+            ShowMessage($"Could not delete device: {exception.Message}", error: true);
+        }
+    }
+
+    private string NextDeviceLabel(DeviceKind kind)
+    {
+        int number = (_document?.Devices.Values.Count(device => device.Kind == kind) ?? 0) + 1;
+        return $"{DevicePrefix(kind)}-{number:00}";
+    }
+
+    private static (MountingSurface Surface, Point3 Position) DefaultDevicePosition(DeviceKind kind, SpaceVolume space)
+    {
+        double centreX = space.Origin.X + space.WidthMillimetres / 2;
+        double centreY = space.Origin.Y + space.DepthMillimetres / 2;
+        return kind switch
+        {
+            DeviceKind.Light or DeviceKind.AccessPoint => (MountingSurface.CeilingInterior, new Point3(centreX, centreY, space.HeightMillimetres)),
+            DeviceKind.Outlet => (MountingSurface.NorthWallInterior, new Point3(centreX, space.Origin.Y, 300)),
+            DeviceKind.Camera => (MountingSurface.NorthWallInterior, new Point3(centreX, space.Origin.Y, Math.Min(2200, space.HeightMillimetres))),
+            DeviceKind.DistributionBoard => (MountingSurface.NorthWallInterior, new Point3(centreX, space.Origin.Y, Math.Min(1200, space.HeightMillimetres))),
+            _ => (MountingSurface.NorthWallInterior, new Point3(centreX, space.Origin.Y, Math.Min(1500, space.HeightMillimetres))),
+        };
+    }
+
+    private static Port[] DefaultPorts(DeviceKind kind) => kind switch
+    {
+        DeviceKind.DistributionBoard => [new Port("feed", PortKind.MainsPower, new Point2(750, 0))],
+        DeviceKind.Outlet => [new Port("power", PortKind.MainsPower, new Point2(0, 0))],
+        DeviceKind.Camera => [new Port("eth0", PortKind.EthernetPoe, new Point2(-350, 0))],
+        DeviceKind.PoeSwitch => [new Port("uplink", PortKind.Ethernet, new Point2(-650, 0)), new Port("port-1", PortKind.EthernetPoe, new Point2(0, -350))],
+        DeviceKind.AccessPoint => [new Port("eth0", PortKind.EthernetPoe, new Point2(0, 300))],
+        DeviceKind.Light => [new Port("power", PortKind.MainsPower, new Point2(0, 0))],
+        _ => [new Port("generic", PortKind.Generic, new Point2(0, 0))],
+    };
+
+    private static string DevicePrefix(DeviceKind kind) => kind switch
+    {
+        DeviceKind.DistributionBoard => "CENTRAL",
+        DeviceKind.JunctionBox => "DOSA",
+        DeviceKind.Outlet => "UTT",
+        DeviceKind.Camera => "KAM",
+        DeviceKind.PoeSwitch => "POE-SW",
+        DeviceKind.AccessPoint => "AP",
+        DeviceKind.Light => "LAMPA",
+        _ => "APPARAT",
+    };
+
+    private static string SurfaceName(MountingSurface surface) => Name(surface.ToString());
 
     private void ShowRoomDialog(bool create)
     {
@@ -776,7 +1014,7 @@ public sealed class MainActivity : Activity
         {
             Text = value,
             InputType = numeric
-                ? Android.Text.InputTypes.ClassNumber | Android.Text.InputTypes.NumberFlagDecimal
+                ? Android.Text.InputTypes.ClassNumber | Android.Text.InputTypes.NumberFlagDecimal | Android.Text.InputTypes.NumberFlagSigned
                 : Android.Text.InputTypes.ClassText | Android.Text.InputTypes.TextFlagCapSentences,
         };
         field.SetTextColor(Color.White);
@@ -890,6 +1128,13 @@ public sealed class MainActivity : Activity
         double number = ParseLength(value);
         if (number < 0) throw new ArgumentException($"{label} cannot be negative.");
         return number;
+    }
+
+    private static double ParseCoordinate(string value, string label)
+    {
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.CurrentCulture, out double local) && double.IsFinite(local)) return local;
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double invariant) && double.IsFinite(invariant)) return invariant;
+        throw new ArgumentException($"{label} must be a valid number.");
     }
 
     private static double ParseLength(string value)

@@ -244,9 +244,11 @@ device testing remains the first verification step. The mobile Survey shell is
 now implemented with Survey, Design, and Install modes; numeric room, wall, and
 ceiling dimensions; fixed openings by wall/offset/sill; portable project export;
 and a touch-driven 2D plan plus rotatable 3D shell review. Measured openings
-immediately appear as installation tasks. The next slice is handle-driven
-placement of new installation objects on that shared shell. Project-linked
-photo capture and camera/gyro guidance follow the measured baseline.
+immediately appear as installation tasks. Mobile Design now also places common
+devices with mounting-surface constraints, exact XYZ fields, and large 2D move
+handles; the same objects render in 3D and appear in Install. The next slice is
+touch-driven conduit/cable routing with port snapping. Project-linked photo
+capture and camera/gyro guidance follow the measured baseline.
 
 The mobile client should share document, validation, command, and migration
 code with desktop. WaylandForge remains the Linux desktop surface; mobile gets
