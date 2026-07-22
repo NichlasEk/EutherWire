@@ -5,8 +5,8 @@ Last updated: 2026-07-22
 ## Safe checkpoint
 
 - Branch: `main`
-- Latest implementation commit: `dba3237 Add mobile conduit fill planning`
-- GitHub is pushed through `dba3237`.
+- Latest implementation commit: `39ad4c4 Add mobile circuit design inputs`
+- GitHub is pushed through `39ad4c4`.
 - The only remaining worktree change is the pre-existing modified
   `vendor/WaylandForge` submodule. It belongs to separate work and must not be
   staged, reset, or overwritten while continuing EutherWire.
@@ -21,7 +21,7 @@ EutherWire Mobile has three connected field modes over the shared document:
    cables to real ports, and edits routes with large touch handles in 2D/3D.
 3. Install exposes devices, openings, conduits, and cables as offline tasks.
 
-Mobile version 0.1.4 adds cable-to-conduit assignment. In the cable editor,
+Mobile version 0.1.4 added cable-to-conduit assignment. In the cable editor,
 `RUN CABLE IN` assigns the cable to a real conduit ID. The cable adopts the
 conduit geometry and follows later conduit vertex changes through the shared
 document command layer. Assigned cable routes do not expose independent vertex
@@ -38,10 +38,36 @@ The analysis deliberately reports `UNKNOWN` when traceable sizing inputs are
 missing. It must never infer that an installation is approved merely from cable
 area and conduit size.
 
+Mobile version 0.1.5 adds `TRACEABLE CIRCUIT DESIGN` to the power-cable dialog.
+It persists design current `Ib`, protective-device current `In` and
+characteristic, loaded conductor count, verified reference current-carrying
+capacity, ambient/grouping/thermal-insulation factors, and a human-readable
+reference source through the shared `CircuitDesign` model. The dialog previews
+the corrected `Ib <= In <= Iz` relation live: green is a complete pass, red is
+a complete failure/warning, and yellow is incomplete/unknown. Editing these
+values preserves the existing cable product and conductor list.
+
 ## Verified state
 
-The full solution built with zero warnings and zero errors. The document check
-suite passed. Emulator testing verified:
+The full solution built with zero warnings and zero errors. The expanded
+document check suite passed. It covers complete PASS and WARNING relations,
+incomplete evidence remaining UNKNOWN, conduit assignment preserving detailed
+electrical design, grouped power-circuit diagnostics, and TOML round-trip of
+every design input.
+
+Android x86_64 emulator testing verified Mobile 0.1.5, version code 6:
+
+- the app started without a fatal exception;
+- an EKRK 3G2.5 cable initially showed `THERMAL UNKNOWN`;
+- all nine traceability inputs rendered in the scrollable cable dialog;
+- blank inputs showed yellow `UNKNOWN / INCOMPLETE EVIDENCE`;
+- entering Ib 13 A, In 16 A, characteristic B, two loaded conductors,
+  reference capacity 20 A, factors 1/1/1, and source `SEK Handbok 421`
+  immediately showed green `PASS`;
+- SAVE persisted every entered field under `[cables.design]` in project TOML;
+- no fatal exception or `UnsatisfiedLinkError` appeared.
+
+The previous conduit/fill emulator verification remains valid:
 
 - assigning `EKRK 3G2.5-01` to `RÖR-01`;
 - persisted `conduit = "69b8eaeb97e741f7925c33c34aa10366"` in project TOML;
@@ -52,59 +78,39 @@ suite passed. Emulator testing verified:
   supplied;
 - no app fatal exception occurred.
 
-The signed ARM64 field-test artifact is Mobile 0.1.4, version code 5:
+The locally verified signed ARM64 field-test artifact is Mobile 0.1.5, version
+code 6:
 
-- SHA-256: `c7e89a56e805cbd61c6cf93a50c4c9984878d0d073a9ed46de6b5fedb4f65472`
+- SHA-256: `bb179ed23f7c025059292732db262b0d7ae05f1ad965342407cebad241f2012a`
 - Size: `81304064` bytes
-- Public Apps URL:
-  `https://apothictech.se/downloads/EutherWire-0.1.0-debug.apk`
-- Server backup of the previous artifact:
-  `/tmp/EutherWire-0.1.3-mobile-routing.previous.apk`
+- Local path:
+  `src/EutherWire.Mobile/bin/Debug/net10.0-android/android-arm64/publish/se.eutherwire.mobile-Signed.apk`
 
-The public URL returned HTTP 200, Android APK MIME type, and the matching byte
-length after deployment.
+This 0.1.5 artifact has not yet replaced the public 0.1.4 Apps download. Do not
+claim public deployment until the server file, MIME type, byte length, and
+hash have been checked.
 
 ## Next implementation slice
 
-Bring traceable circuit-design inputs into the mobile cable editor so a power
-cable can progress honestly from `THERMAL UNKNOWN` to `PASS` or `WARNING`.
+Implement project-linked field photo capture. Reuse schema 12 installation
+records and their existing photo-reference list rather than adding a mobile-only
+attachment model.
 
-For power presets, add fields for:
+The first narrow slice should:
 
-- design current `Ib` in amperes;
-- protective-device current `In` and characteristic;
-- loaded conductor count;
-- verified reference current-carrying capacity;
-- ambient correction factor;
-- grouping correction factor;
-- thermal-insulation correction factor;
-- human-readable reference source.
+- capture or choose a photo from an object/task detail view;
+- store it under the active project with a stable collision-safe file name;
+- add a project-relative photo reference through the shared installation
+  command/journal path;
+- show attached-photo count and a simple preview/open action on that same task;
+- include the file in portable snapshot export and prove integrity checking on
+  import;
+- remain fully offline and avoid camera permission when the user only chooses
+  an existing image;
+- handle cancelled capture, missing files, duplicate event replay, and app
+  restart without losing the reference.
 
-Reuse `CircuitDesign`, `ElectricalCableSpec`, `ElectricalRuleProfile`,
-`SetCableElectricalCommand`, and `ProjectAnalyzer`. Do not add a mobile-only
-electrical model. Preserve the existing conductor list and cable product when
-only design values change. Blank or incomplete evidence must remain unknown;
-do not insert optimistic defaults for ampacity or source.
-
-Show the corrected capacity and relation directly in the dialog:
-
-`Ib <= In <= Iz corrected`
-
-Use green only for a complete passing relation, red for a complete failing
-relation, and yellow for incomplete/unknown data. Continue showing the conduit
-grouping warning when more than one power circuit shares a conduit.
-
-Add document checks covering:
-
-- a complete passing relation;
-- a complete failing relation;
-- incomplete inputs remaining unknown;
-- assignment to a conduit preserving an existing detailed electrical design;
-- grouping two power circuits producing the visible verification warning;
-- TOML round-trip of every entered value and reference source.
-
-After that slice, the next product step is project-linked field photo capture,
-followed by calibrated camera/gyroscope guidance.
+After field-photo capture, continue with calibrated camera/gyroscope guidance.
 
 ## Resume and verify
 
